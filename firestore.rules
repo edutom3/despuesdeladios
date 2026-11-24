@@ -1,0 +1,537 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Primitive Helpers ---
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'edutom3@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isNonEmptyString(val, maxLen) {
+      return val is string && val.size() >= 1 && val.size() <= maxLen;
+    }
+
+    function isOptString(val, maxLen) {
+      return val is string && val.size() <= maxLen;
+    }
+
+    // --- Entity Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'reminderOptIn', 'reminderDaysBefore', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'reminderOptIn', 'reminderDaysBefore', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && isNonEmptyString(data.email, 200)
+        && isOptString(data.displayName, 120)
+        && data.reminderOptIn is bool
+        && data.reminderDaysBefore is number
+        && data.reminderDaysBefore >= 1
+        && data.reminderDaysBefore <= 60
+        && isNonEmptyString(data.createdAt, 40)
+        && isNonEmptyString(data.updatedAt, 40);
+    }
+
+    function isValidBereavementCase(data) {
+      return data.keys().hasAll([
+          'ownerId', 'ownerEmail', 'ownerName', 'deceasedName', 'deathDate',
+          'deathPlace', 'ccaa', 'answers', 'unlocked', 'unlockMethod',
+          'memberUids', 'collaboratorUids', 'taskStates', 'docStates',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'ownerEmail', 'ownerName', 'deceasedName', 'deathDate',
+          'deathPlace', 'ccaa', 'answers', 'unlocked', 'unlockMethod', 'unlockCodeUsed',
+          'memberUids', 'collaboratorUids', 'taskStates', 'docStates',
+          'reminderEmail', 'reminderEnabled', 'reminderDaysBefore', 'reminderOnlyLegal',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && isNonEmptyString(data.ownerEmail, 200)
+        && isOptString(data.ownerName, 120)
+        && isNonEmptyString(data.deceasedName, 120)
+        && isNonEmptyString(data.deathDate, 20)
+        && isOptString(data.deathPlace, 120)
+        && isNonEmptyString(data.ccaa, 80)
+        && data.answers is map
+        && data.unlocked is bool
+        && data.unlockMethod in ['free', 'stripe', 'partner_code']
+        && (!('unlockCodeUsed' in data) || isOptString(data.unlockCodeUsed, 64))
+        && data.memberUids is list
+        && data.memberUids.size() >= 1
+        && data.memberUids.size() <= 15
+        && data.memberUids[0] is string
+        && data.collaboratorUids is list
+        && data.collaboratorUids.size() >= 1
+        && data.collaboratorUids.size() <= 15
+        && data.collaboratorUids[0] is string
+        && data.taskStates is map
+        && data.docStates is map
+        && (!('reminderEmail' in data) || isOptString(data.reminderEmail, 200))
+        && (!('reminderEnabled' in data) || data.reminderEnabled is bool)
+        && (!('reminderDaysBefore' in data) || (data.reminderDaysBefore is number && data.reminderDaysBefore >= 1 && data.reminderDaysBefore <= 60))
+        && (!('reminderOnlyLegal' in data) || data.reminderOnlyLegal is bool)
+        && isNonEmptyString(data.createdAt, 40)
+        && isNonEmptyString(data.updatedAt, 40);
+    }
+
+    function isValidCaseReminderLog(data) {
+      return data.keys().hasAll([
+          'recipientEmail', 'triggerType', 'status', 'subject',
+          'procedureIds', 'procedureTitles', 'createdByUid', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'recipientEmail', 'triggerType', 'status', 'subject',
+          'procedureIds', 'procedureTitles', 'resendId', 'errorMessage',
+          'createdByUid', 'createdAt'
+        ])
+        && isNonEmptyString(data.recipientEmail, 200)
+        && data.triggerType in ['auto', 'manual_summary', 'test']
+        && data.status in ['sent', 'simulated_no_api_key', 'error']
+        && isNonEmptyString(data.subject, 200)
+        && data.procedureIds is list
+        && data.procedureIds.size() <= 30
+        && (data.procedureIds.size() == 0 || data.procedureIds[0] is string)
+        && data.procedureTitles is list
+        && data.procedureTitles.size() <= 30
+        && (data.procedureTitles.size() == 0 || data.procedureTitles[0] is string)
+        && (!('resendId' in data) || isOptString(data.resendId, 120))
+        && (!('errorMessage' in data) || isOptString(data.errorMessage, 400))
+        && isValidId(data.createdByUid)
+        && isNonEmptyString(data.createdAt, 40);
+    }
+
+    function isValidCaseMember(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'addedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'inviteCode', 'addedAt'])
+        && isValidId(data.uid)
+        && isNonEmptyString(data.email, 200)
+        && isOptString(data.displayName, 120)
+        && data.role in ['owner', 'collaborate', 'view']
+        && (!('inviteCode' in data) || isOptString(data.inviteCode, 64))
+        && isNonEmptyString(data.addedAt, 40);
+    }
+
+    function isValidCaseNote(data) {
+      return data.keys().hasAll(['authorUid', 'authorName', 'procedureId', 'text', 'createdAt'])
+        && data.keys().hasOnly(['authorUid', 'authorName', 'procedureId', 'text', 'createdAt'])
+        && isValidId(data.authorUid)
+        && isNonEmptyString(data.authorName, 120)
+        && isNonEmptyString(data.procedureId, 120)
+        && isNonEmptyString(data.text, 2000)
+        && isNonEmptyString(data.createdAt, 40);
+    }
+
+    function isValidCaseDocument(data) {
+      return data.keys().hasAll(['docTypeKey', 'title', 'mimeType', 'fileSize', 'uploadedByUid', 'uploadedByName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'docTypeKey', 'title', 'mimeType', 'fileSize', 'uploadedByUid', 'uploadedByName',
+          'extractedDate', 'extractedNumber', 'extractedIssuer', 'extractedSubject',
+          'createdAt', 'updatedAt'
+        ])
+        && isNonEmptyString(data.docTypeKey, 120)
+        && isNonEmptyString(data.title, 160)
+        && isNonEmptyString(data.mimeType, 80)
+        && data.fileSize is number && data.fileSize >= 0 && data.fileSize <= 10000000
+        && isValidId(data.uploadedByUid)
+        && isNonEmptyString(data.uploadedByName, 120)
+        && (!('extractedDate' in data) || isOptString(data.extractedDate, 40))
+        && (!('extractedNumber' in data) || isOptString(data.extractedNumber, 80))
+        && (!('extractedIssuer' in data) || isOptString(data.extractedIssuer, 140))
+        && (!('extractedSubject' in data) || isOptString(data.extractedSubject, 140))
+        && isNonEmptyString(data.createdAt, 40)
+        && isNonEmptyString(data.updatedAt, 40);
+    }
+
+    function isValidCaseDocumentPayload(data) {
+      return data.keys().hasAll(['dataUrl', 'uploadedByUid', 'createdAt'])
+        && data.keys().hasOnly(['dataUrl', 'uploadedByUid', 'createdAt'])
+        && isNonEmptyString(data.dataUrl, 900000)
+        && isValidId(data.uploadedByUid)
+        && isNonEmptyString(data.createdAt, 40);
+    }
+
+    function isValidInvitation(data) {
+      return data.keys().hasAll(['caseId', 'caseTitle', 'ownerId', 'ownerName', 'invitedEmail', 'role', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['caseId', 'caseTitle', 'ownerId', 'ownerName', 'invitedEmail', 'role', 'status', 'acceptedByUid', 'createdAt', 'updatedAt'])
+        && isValidId(data.caseId)
+        && isNonEmptyString(data.caseTitle, 140)
+        && isValidId(data.ownerId)
+        && isOptString(data.ownerName, 120)
+        && isNonEmptyString(data.invitedEmail, 200)
+        && data.role in ['collaborate', 'view']
+        && data.status in ['pending', 'accepted', 'revoked']
+        && (!('acceptedByUid' in data) || isOptString(data.acceptedByUid, 128))
+        && isNonEmptyString(data.createdAt, 40)
+        && isNonEmptyString(data.updatedAt, 40);
+    }
+
+    function isValidProcedure(data) {
+      return data.keys().hasAll([
+          'id', 'title', 'summary', 'whatIsIt', 'whereToDoIt', 'consequencesIfSkipped',
+          'requiredDocs', 'deadlineKind', 'deadlineUnit', 'deadlineValue',
+          'priorityBucket', 'sortOrder', 'visible', 'rules', 'regionalOverrides', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'title', 'summary', 'whatIsIt', 'whereToDoIt', 'consequencesIfSkipped',
+          'requiredDocs', 'deadlineKind', 'deadlineUnit', 'deadlineValue',
+          'priorityBucket', 'sortOrder', 'visible', 'rules', 'regionalOverrides', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isNonEmptyString(data.title, 160)
+        && isNonEmptyString(data.summary, 600)
+        && isNonEmptyString(data.whatIsIt, 2500)
+        && isNonEmptyString(data.whereToDoIt, 1200)
+        && isNonEmptyString(data.consequencesIfSkipped, 1200)
+        && data.requiredDocs is list && data.requiredDocs.size() <= 20
+        && data.deadlineKind in ['legal', 'recommended', 'none']
+        && data.deadlineUnit in ['days', 'months', 'none']
+        && data.deadlineValue is number && data.deadlineValue >= 0 && data.deadlineValue <= 3650
+        && data.priorityBucket in ['first', 'months', 'later']
+        && data.sortOrder is number
+        && data.visible is bool
+        && data.rules is map
+        && data.regionalOverrides is map
+        && isNonEmptyString(data.updatedAt, 40);
+    }
+
+    function isValidPartnerCode(data) {
+      return data.keys().hasAll(['code', 'partnerName', 'partnerType', 'maxUses', 'usedCount', 'active', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['code', 'partnerName', 'partnerType', 'maxUses', 'usedCount', 'active', 'expiresAt', 'createdAt', 'updatedAt'])
+        && isNonEmptyString(data.code, 64)
+        && isNonEmptyString(data.partnerName, 140)
+        && data.partnerType in ['funeraria', 'aseguradora', 'otro']
+        && data.maxUses is number && data.maxUses >= 1 && data.maxUses <= 100000
+        && data.usedCount is number && data.usedCount >= 0 && data.usedCount <= 100000
+        && data.active is bool
+        && (!('expiresAt' in data) || isOptString(data.expiresAt, 30))
+        && isNonEmptyString(data.createdAt, 40)
+        && isNonEmptyString(data.updatedAt, 40);
+    }
+
+    function isValidLegalAlert(data) {
+      return data.keys().hasAll(['title', 'summary', 'effectiveDate', 'affectedCcaas', 'affectedProcedureIds', 'severity', 'published', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['title', 'summary', 'effectiveDate', 'affectedCcaas', 'affectedProcedureIds', 'severity', 'published', 'createdAt', 'updatedAt'])
+        && isNonEmptyString(data.title, 180)
+        && isNonEmptyString(data.summary, 1500)
+        && isNonEmptyString(data.effectiveDate, 30)
+        && data.affectedCcaas is list && data.affectedCcaas.size() >= 1 && data.affectedCcaas.size() <= 25
+        && data.affectedProcedureIds is list && data.affectedProcedureIds.size() <= 40
+        && data.severity in ['info', 'importante']
+        && data.published is bool
+        && isNonEmptyString(data.createdAt, 40)
+        && isNonEmptyString(data.updatedAt, 40);
+    }
+
+    function isValidProfessional(data) {
+      return data.keys().hasAll(['name', 'category', 'ccaa', 'description', 'isPublicService', 'updatedAt'])
+        && data.keys().hasOnly(['name', 'category', 'ccaa', 'description', 'phone', 'website', 'isPublicService', 'updatedAt'])
+        && isNonEmptyString(data.name, 160)
+        && isNonEmptyString(data.category, 80)
+        && isNonEmptyString(data.ccaa, 80)
+        && isNonEmptyString(data.description, 800)
+        && (!('phone' in data) || isOptString(data.phone, 40))
+        && (!('website' in data) || isOptString(data.website, 240))
+        && data.isPublicService is bool
+        && isNonEmptyString(data.updatedAt, 40);
+    }
+
+    // --- Relational Case Helpers ---
+    function caseDoc(caseId) {
+      return get(/databases/$(database)/documents/cases/$(caseId)).data;
+    }
+
+    function isCaseMember(caseId) {
+      return exists(/databases/$(database)/documents/cases/$(caseId))
+        && (request.auth.uid in caseDoc(caseId).memberUids || caseDoc(caseId).ownerId == request.auth.uid);
+    }
+
+    function isCaseCollaborator(caseId) {
+      return exists(/databases/$(database)/documents/cases/$(caseId))
+        && (request.auth.uid in caseDoc(caseId).collaboratorUids || caseDoc(caseId).ownerId == request.auth.uid);
+    }
+
+    function isCaseOwner(caseId) {
+      return exists(/databases/$(database)/documents/cases/$(caseId))
+        && caseDoc(caseId).ownerId == request.auth.uid;
+    }
+
+    // --- Collections ---
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isAdmin() || (isSignedIn() && request.auth.uid == userId));
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isSignedIn() && request.auth.uid == userId
+        && isValidUserProfile(incoming()) && incoming().uid == request.auth.uid;
+      allow update: if isValidId(userId) && isSignedIn() && isValidUserProfile(incoming()) && (
+        isAdmin() || (
+          request.auth.uid == userId
+          && incoming().uid == existing().uid
+          && incoming().email == existing().email
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'reminderOptIn', 'reminderDaysBefore', 'updatedAt'])
+        )
+      );
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    match /cases/{caseId} {
+      allow get: if isValidId(caseId) && (
+        isAdmin() || (isSignedIn() && (existing().ownerId == request.auth.uid || request.auth.uid in existing().memberUids))
+      );
+      allow list: if isAdmin() || (
+        isSignedIn() && (resource.data.ownerId == request.auth.uid || request.auth.uid in resource.data.memberUids)
+      );
+      allow create: if isValidId(caseId) && isSignedIn() && isValidBereavementCase(incoming()) && (
+        isAdmin() || (
+          incoming().ownerId == request.auth.uid
+          && request.auth.uid in incoming().memberUids
+          && request.auth.uid in incoming().collaboratorUids
+          && incoming().unlocked == false
+          && incoming().unlockMethod == 'free'
+        )
+      );
+      allow update: if isValidId(caseId) && isSignedIn() && isValidBereavementCase(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin()
+          // Owner editing case details, questionnaire, collaborators, tasks, docs, or reminders
+          || (
+            existing().ownerId == request.auth.uid
+            && incoming().unlocked == existing().unlocked
+            && incoming().unlockMethod == existing().unlockMethod
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'deceasedName', 'deathDate', 'deathPlace', 'ccaa', 'answers',
+              'memberUids', 'collaboratorUids', 'taskStates', 'docStates',
+              'reminderEmail', 'reminderEnabled', 'reminderDaysBefore', 'reminderOnlyLegal', 'updatedAt'
+            ])
+          )
+          // Owner unlocking via partner code (atomically verified against partnerCodes)
+          || (
+            existing().ownerId == request.auth.uid
+            && existing().unlocked == false
+            && incoming().unlocked == true
+            && incoming().unlockMethod == 'partner_code'
+            && 'unlockCodeUsed' in incoming()
+            && isValidId(incoming().unlockCodeUsed)
+            && exists(/databases/$(database)/documents/partnerCodes/$(incoming().unlockCodeUsed))
+            && get(/databases/$(database)/documents/partnerCodes/$(incoming().unlockCodeUsed)).data.active == true
+            && get(/databases/$(database)/documents/partnerCodes/$(incoming().unlockCodeUsed)).data.usedCount < get(/databases/$(database)/documents/partnerCodes/$(incoming().unlockCodeUsed)).data.maxUses
+            && incoming().diff(existing()).affectedKeys().hasOnly(['unlocked', 'unlockMethod', 'unlockCodeUsed', 'updatedAt'])
+          )
+          // Owner unlocking via Stripe checkout session
+          || (
+            existing().ownerId == request.auth.uid
+            && existing().unlocked == false
+            && incoming().unlocked == true
+            && incoming().unlockMethod == 'stripe'
+            && 'unlockCodeUsed' in incoming()
+            && isNonEmptyString(incoming().unlockCodeUsed, 64)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['unlocked', 'unlockMethod', 'unlockCodeUsed', 'updatedAt'])
+          )
+          // Collaborator updating taskStates, docStates, or reminder settings
+          || (
+            request.auth.uid in existing().collaboratorUids
+            && incoming().unlocked == existing().unlocked
+            && incoming().unlockMethod == existing().unlockMethod
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'taskStates', 'docStates',
+              'reminderEmail', 'reminderEnabled', 'reminderDaysBefore', 'reminderOnlyLegal', 'updatedAt'
+            ])
+          )
+          // Family member joining atomically via a valid pending invitation
+          || (
+            !(request.auth.uid in existing().memberUids)
+            && request.auth.uid in incoming().memberUids
+            && incoming().memberUids.hasAll(existing().memberUids)
+            && incoming().memberUids.size() == existing().memberUids.size() + 1
+            && existsAfter(/databases/$(database)/documents/cases/$(caseId)/members/$(request.auth.uid))
+            && (
+              (
+                getAfter(/databases/$(database)/documents/cases/$(caseId)/members/$(request.auth.uid)).data.role == 'collaborate'
+                && request.auth.uid in incoming().collaboratorUids
+                && incoming().collaboratorUids.hasAll(existing().collaboratorUids)
+                && incoming().collaboratorUids.size() == existing().collaboratorUids.size() + 1
+              )
+              || (
+                getAfter(/databases/$(database)/documents/cases/$(caseId)/members/$(request.auth.uid)).data.role == 'view'
+                && incoming().collaboratorUids == existing().collaboratorUids
+              )
+            )
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'collaboratorUids', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(caseId) && (isAdmin() || (isSignedIn() && existing().ownerId == request.auth.uid));
+
+      match /members/{memberUid} {
+        allow get: if isValidId(caseId) && isValidId(memberUid) && isSignedIn() && (isAdmin() || isCaseMember(caseId));
+        allow list: if isSignedIn() && (isAdmin() || resource.data.uid == request.auth.uid || isCaseOwner(caseId));
+        allow create: if isValidId(caseId) && isValidId(memberUid) && isSignedIn() && isValidCaseMember(incoming()) && (
+          isAdmin()
+          || isCaseOwner(caseId)
+          || (
+            request.auth.uid == memberUid
+            && incoming().uid == request.auth.uid
+            && 'inviteCode' in incoming()
+            && isValidId(incoming().inviteCode)
+            && exists(/databases/$(database)/documents/invitations/$(incoming().inviteCode))
+            && get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.caseId == caseId
+            && get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.status == 'pending'
+            && get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.role == incoming().role
+            && getAfter(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.status == 'accepted'
+          )
+        );
+        allow update: if isValidId(caseId) && isValidId(memberUid) && isSignedIn() && isValidCaseMember(incoming())
+          && (isAdmin() || isCaseOwner(caseId))
+          && incoming().uid == existing().uid
+          && incoming().addedAt == existing().addedAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'displayName']);
+        allow delete: if isValidId(caseId) && isValidId(memberUid) && isSignedIn() && (
+          isAdmin() || isCaseOwner(caseId) || request.auth.uid == memberUid
+        );
+      }
+
+      match /notes/{noteId} {
+        allow get: if isValidId(caseId) && isValidId(noteId) && isSignedIn() && (isAdmin() || isCaseMember(caseId));
+        allow list: if isSignedIn() && (isAdmin() || isCaseMember(caseId));
+        allow create: if isValidId(caseId) && isValidId(noteId) && isSignedIn() && isValidCaseNote(incoming())
+          && incoming().authorUid == request.auth.uid
+          && (isAdmin() || isCaseCollaborator(caseId));
+        allow delete: if isValidId(caseId) && isValidId(noteId) && isSignedIn() && (
+          isAdmin() || existing().authorUid == request.auth.uid || isCaseOwner(caseId)
+        );
+      }
+
+      match /documents/{docId} {
+        allow get: if isValidId(caseId) && isValidId(docId) && isSignedIn() && (isAdmin() || isCaseMember(caseId));
+        allow list: if isSignedIn() && (isAdmin() || isCaseMember(caseId));
+        allow create: if isValidId(caseId) && isValidId(docId) && isSignedIn() && isValidCaseDocument(incoming())
+          && incoming().uploadedByUid == request.auth.uid
+          && (isAdmin() || (isCaseCollaborator(caseId) && caseDoc(caseId).unlocked == true));
+        allow update: if isValidId(caseId) && isValidId(docId) && isSignedIn() && isValidCaseDocument(incoming())
+          && incoming().uploadedByUid == existing().uploadedByUid
+          && incoming().createdAt == existing().createdAt
+          && (isAdmin() || isCaseCollaborator(caseId))
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'extractedDate', 'extractedNumber', 'extractedIssuer', 'extractedSubject', 'updatedAt'
+          ]);
+        allow delete: if isValidId(caseId) && isValidId(docId) && isSignedIn() && (
+          isAdmin() || isCaseCollaborator(caseId)
+        );
+
+        match /files/{fileKey} {
+          allow get: if isValidId(caseId) && isValidId(docId) && isValidId(fileKey) && isSignedIn() && (isAdmin() || isCaseMember(caseId));
+          allow create: if isValidId(caseId) && isValidId(docId) && isValidId(fileKey) && isSignedIn() && isValidCaseDocumentPayload(incoming())
+            && incoming().uploadedByUid == request.auth.uid
+            && (isAdmin() || (isCaseCollaborator(caseId) && caseDoc(caseId).unlocked == true));
+          allow delete: if isValidId(caseId) && isValidId(docId) && isValidId(fileKey) && isSignedIn() && (
+            isAdmin() || isCaseCollaborator(caseId)
+          );
+        }
+      }
+
+      match /reminders/{reminderId} {
+        allow get: if isValidId(caseId) && isValidId(reminderId) && isSignedIn() && (isAdmin() || isCaseMember(caseId));
+        allow list: if isSignedIn() && (isAdmin() || isCaseMember(caseId));
+        allow create: if isValidId(caseId) && isValidId(reminderId) && isSignedIn() && isValidCaseReminderLog(incoming())
+          && incoming().createdByUid == request.auth.uid
+          && (isAdmin() || isCaseCollaborator(caseId));
+        allow delete: if isValidId(caseId) && isValidId(reminderId) && isSignedIn() && (
+          isAdmin() || isCaseOwner(caseId)
+        );
+      }
+    }
+
+    match /invitations/{inviteCode} {
+      allow get: if isValidId(inviteCode) && isSignedIn();
+      allow list: if isSignedIn() && (isAdmin() || resource.data.ownerId == request.auth.uid);
+      allow create: if isValidId(inviteCode) && isSignedIn() && isValidInvitation(incoming())
+        && incoming().ownerId == request.auth.uid
+        && incoming().status == 'pending'
+        && isCaseOwner(incoming().caseId);
+      allow update: if isValidId(inviteCode) && isSignedIn() && isValidInvitation(incoming())
+        && incoming().caseId == existing().caseId
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin()
+          || (
+            existing().ownerId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'status', 'updatedAt'])
+          )
+          || (
+            existing().status == 'pending'
+            && incoming().status == 'accepted'
+            && incoming().acceptedByUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'acceptedByUid', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(inviteCode) && isSignedIn() && (isAdmin() || existing().ownerId == request.auth.uid);
+    }
+
+    match /procedures/{procedureId} {
+      allow get: if isValidId(procedureId) && isSignedIn();
+      allow list: if isSignedIn();
+      allow create, update: if isValidId(procedureId) && isAdmin() && isValidProcedure(incoming());
+      allow delete: if isValidId(procedureId) && isAdmin();
+    }
+
+    match /partnerCodes/{codeId} {
+      allow get: if isValidId(codeId) && isSignedIn();
+      allow list: if isAdmin();
+      allow create: if isValidId(codeId) && isAdmin() && isValidPartnerCode(incoming());
+      allow update: if isValidId(codeId) && isSignedIn() && isValidPartnerCode(incoming()) && (
+        isAdmin()
+        || (
+          existing().active == true
+          && existing().usedCount < existing().maxUses
+          && incoming().usedCount == existing().usedCount + 1
+          && incoming().code == existing().code
+          && incoming().partnerName == existing().partnerName
+          && incoming().partnerType == existing().partnerType
+          && incoming().maxUses == existing().maxUses
+          && incoming().active == existing().active
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['usedCount', 'updatedAt'])
+        )
+      );
+      allow delete: if isValidId(codeId) && isAdmin();
+    }
+
+    match /legalAlerts/{alertId} {
+      allow get: if isValidId(alertId) && isSignedIn();
+      allow list: if isSignedIn();
+      allow create, update: if isValidId(alertId) && isAdmin() && isValidLegalAlert(incoming());
+      allow delete: if isValidId(alertId) && isAdmin();
+    }
+
+    match /professionals/{entryId} {
+      allow get: if isValidId(entryId) && isSignedIn();
+      allow list: if isSignedIn();
+      allow create, update: if isValidId(entryId) && isAdmin() && isValidProfessional(incoming());
+      allow delete: if isValidId(entryId) && isAdmin();
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Después del adiós",
+  "description": "Guía práctica y calendario personalizado para acompañar a las familias en los trámites tras un fallecimiento en España. Herramienta de organización, sin asesoramiento jurídico.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

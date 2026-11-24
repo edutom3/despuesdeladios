@@ -1,0 +1,300 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user profile and reminder preferences for the account holder or family member.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 200 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "reminderOptIn": { "type": "boolean" },
+        "reminderDaysBefore": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "reminderOptIn", "reminderDaysBefore", "createdAt", "updatedAt"]
+    },
+    "BereavementCase": {
+      "title": "BereavementCase",
+      "description": "A private family bereavement case with questionnaire answers, unlock state, collaborators, and task/document states.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerEmail": { "type": "string", "maxLength": 200 },
+        "ownerName": { "type": "string", "maxLength": 120 },
+        "deceasedName": { "type": "string", "maxLength": 120 },
+        "deathDate": { "type": "string", "maxLength": 20 },
+        "deathPlace": { "type": "string", "maxLength": 120 },
+        "ccaa": { "type": "string", "maxLength": 80 },
+        "answers": { "type": "object" },
+        "unlocked": { "type": "boolean" },
+        "unlockMethod": { "type": "string", "enum": ["free", "stripe", "partner_code"] },
+        "unlockCodeUsed": { "type": "string", "maxLength": 64 },
+        "memberUids": { "type": "array" },
+        "collaboratorUids": { "type": "array" },
+        "taskStates": { "type": "object" },
+        "docStates": { "type": "object" },
+        "reminderEmail": { "type": "string", "maxLength": 200 },
+        "reminderEnabled": { "type": "boolean" },
+        "reminderDaysBefore": { "type": "number" },
+        "reminderOnlyLegal": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "ownerEmail",
+        "ownerName",
+        "deceasedName",
+        "deathDate",
+        "deathPlace",
+        "ccaa",
+        "answers",
+        "unlocked",
+        "unlockMethod",
+        "memberUids",
+        "collaboratorUids",
+        "taskStates",
+        "docStates",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CaseMember": {
+      "title": "CaseMember",
+      "description": "Family member record inside a bereavement case.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 200 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["owner", "collaborate", "view"] },
+        "inviteCode": { "type": "string", "maxLength": 64 },
+        "addedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "role", "addedAt"]
+    },
+    "CaseNote": {
+      "title": "CaseNote",
+      "description": "Shared family note or comment on a case or procedure.",
+      "type": "object",
+      "properties": {
+        "authorUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "maxLength": 120 },
+        "procedureId": { "type": "string", "maxLength": 120 },
+        "text": { "type": "string", "maxLength": 2000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["authorUid", "authorName", "procedureId", "text", "createdAt"]
+    },
+    "CaseDocument": {
+      "title": "CaseDocument",
+      "description": "Private uploaded document metadata and extracted basic data.",
+      "type": "object",
+      "properties": {
+        "docTypeKey": { "type": "string", "maxLength": 120 },
+        "title": { "type": "string", "maxLength": 160 },
+        "mimeType": { "type": "string", "maxLength": 80 },
+        "fileSize": { "type": "number" },
+        "uploadedByUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uploadedByName": { "type": "string", "maxLength": 120 },
+        "extractedDate": { "type": "string", "maxLength": 40 },
+        "extractedNumber": { "type": "string", "maxLength": 80 },
+        "extractedIssuer": { "type": "string", "maxLength": 140 },
+        "extractedSubject": { "type": "string", "maxLength": 140 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["docTypeKey", "title", "mimeType", "fileSize", "uploadedByUid", "uploadedByName", "createdAt", "updatedAt"]
+    },
+    "CaseDocumentPayload": {
+      "title": "CaseDocumentPayload",
+      "description": "Encoded file payload stored separately from metadata for fast document listing.",
+      "type": "object",
+      "properties": {
+        "dataUrl": { "type": "string", "maxLength": 900000 },
+        "uploadedByUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["dataUrl", "uploadedByUid", "createdAt"]
+    },
+    "CaseReminderLog": {
+      "title": "CaseReminderLog",
+      "description": "Record of automated or manual deadline reminder emails sent or prepared via Resend.",
+      "type": "object",
+      "properties": {
+        "recipientEmail": { "type": "string", "maxLength": 200 },
+        "triggerType": { "type": "string", "enum": ["auto", "manual_summary", "test"] },
+        "status": { "type": "string", "enum": ["sent", "simulated_no_api_key", "error"] },
+        "subject": { "type": "string", "maxLength": 200 },
+        "procedureIds": { "type": "array" },
+        "procedureTitles": { "type": "array" },
+        "resendId": { "type": "string", "maxLength": 120 },
+        "errorMessage": { "type": "string", "maxLength": 400 },
+        "createdByUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["recipientEmail", "triggerType", "status", "subject", "procedureIds", "procedureTitles", "createdByUid", "createdAt"]
+    },
+    "FamilyInvitation": {
+      "title": "FamilyInvitation",
+      "description": "Invitation for a family member to join a case with collaborate or view permission.",
+      "type": "object",
+      "properties": {
+        "caseId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "caseTitle": { "type": "string", "maxLength": 140 },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerName": { "type": "string", "maxLength": 120 },
+        "invitedEmail": { "type": "string", "maxLength": 200 },
+        "role": { "type": "string", "enum": ["collaborate", "view"] },
+        "status": { "type": "string", "enum": ["pending", "accepted", "revoked"] },
+        "acceptedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["caseId", "caseTitle", "ownerId", "ownerName", "invitedEmail", "role", "status", "createdAt", "updatedAt"]
+    },
+    "ProcedureCatalogItem": {
+      "title": "ProcedureCatalogItem",
+      "description": "Admin-managed Spanish administrative or fiscal procedure with rules and regional CCAA adjustments.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 160 },
+        "summary": { "type": "string", "maxLength": 600 },
+        "whatIsIt": { "type": "string", "maxLength": 2500 },
+        "whereToDoIt": { "type": "string", "maxLength": 1200 },
+        "consequencesIfSkipped": { "type": "string", "maxLength": 1200 },
+        "requiredDocs": { "type": "array" },
+        "deadlineKind": { "type": "string", "enum": ["legal", "recommended", "none"] },
+        "deadlineUnit": { "type": "string", "enum": ["days", "months", "none"] },
+        "deadlineValue": { "type": "number" },
+        "priorityBucket": { "type": "string", "enum": ["first", "months", "later"] },
+        "sortOrder": { "type": "number" },
+        "visible": { "type": "boolean" },
+        "rules": { "type": "object" },
+        "regionalOverrides": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "title",
+        "summary",
+        "whatIsIt",
+        "whereToDoIt",
+        "consequencesIfSkipped",
+        "requiredDocs",
+        "deadlineKind",
+        "deadlineUnit",
+        "deadlineValue",
+        "priorityBucket",
+        "sortOrder",
+        "visible",
+        "rules",
+        "regionalOverrides",
+        "updatedAt"
+      ]
+    },
+    "PartnerCode": {
+      "title": "PartnerCode",
+      "description": "Unlock code issued for funeral homes and insurance companies.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 64, "pattern": "^[A-Z0-9_\\-]+$" },
+        "partnerName": { "type": "string", "maxLength": 140 },
+        "partnerType": { "type": "string", "enum": ["funeraria", "aseguradora", "otro"] },
+        "maxUses": { "type": "number" },
+        "usedCount": { "type": "number" },
+        "active": { "type": "boolean" },
+        "expiresAt": { "type": "string", "maxLength": 30 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "partnerName", "partnerType", "maxUses", "usedCount", "active", "createdAt", "updatedAt"]
+    },
+    "LegalAlert": {
+      "title": "LegalAlert",
+      "description": "Legal or regulatory update published by admins and matched to affected open cases.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 180 },
+        "summary": { "type": "string", "maxLength": 1500 },
+        "effectiveDate": { "type": "string", "maxLength": 30 },
+        "affectedCcaas": { "type": "array" },
+        "affectedProcedureIds": { "type": "array" },
+        "severity": { "type": "string", "enum": ["info", "importante"] },
+        "published": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "summary", "effectiveDate", "affectedCcaas", "affectedProcedureIds", "severity", "published", "createdAt", "updatedAt"]
+    },
+    "ProfessionalEntry": {
+      "title": "ProfessionalEntry",
+      "description": "Directory entry for trusted Spanish institutions and professionals.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "maxLength": 80 },
+        "ccaa": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 800 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "website": { "type": "string", "maxLength": 240 },
+        "isPublicService": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "category", "ccaa", "description", "isPublicService", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user account profile and notification settings."
+    },
+    "/cases/{caseId}": {
+      "schema": { "$ref": "#/entities/BereavementCase" },
+      "description": "Private bereavement cases accessible only to owner, invited family members, and admin."
+    },
+    "/cases/{caseId}/members/{memberUid}": {
+      "schema": { "$ref": "#/entities/CaseMember" },
+      "description": "Family collaborators and viewers attached to a case."
+    },
+    "/cases/{caseId}/notes/{noteId}": {
+      "schema": { "$ref": "#/entities/CaseNote" },
+      "description": "Shared notes and comments inside a case."
+    },
+    "/cases/{caseId}/documents/{docId}": {
+      "schema": { "$ref": "#/entities/CaseDocument" },
+      "description": "Private document metadata and extracted fields."
+    },
+    "/cases/{caseId}/documents/{docId}/files/{fileKey}": {
+      "schema": { "$ref": "#/entities/CaseDocumentPayload" },
+      "description": "Private encoded document/scan file content."
+    },
+    "/cases/{caseId}/reminders/{reminderId}": {
+      "schema": { "$ref": "#/entities/CaseReminderLog" },
+      "description": "History of automated and manual deadline reminder emails for a case."
+    },
+    "/invitations/{inviteCode}": {
+      "schema": { "$ref": "#/entities/FamilyInvitation" },
+      "description": "Unguessable invitation tokens for family members."
+    },
+    "/procedures/{procedureId}": {
+      "schema": { "$ref": "#/entities/ProcedureCatalogItem" },
+      "description": "Editable Spanish procedures catalog and CCAA rules."
+    },
+    "/partnerCodes/{codeId}": {
+      "schema": { "$ref": "#/entities/PartnerCode" },
+      "description": "Funeral home and insurer unlock codes."
+    },
+    "/legalAlerts/{alertId}": {
+      "schema": { "$ref": "#/entities/LegalAlert" },
+      "description": "Legal/regulatory change notifications published by administrators."
+    },
+    "/professionals/{entryId}": {
+      "schema": { "$ref": "#/entities/ProfessionalEntry" },
+      "description": "Public directory of professionals and official Spanish organisms."
+    }
+  }
+}
