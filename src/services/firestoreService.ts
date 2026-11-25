@@ -604,7 +604,8 @@ export async function removeCaseMember(
 // --- Notes ---
 export function subscribeCaseNotes(
   caseId: string,
-  onData: (notes: CaseNote[]) => void
+  onData: (notes: CaseNote[]) => void,
+  onError?: (error: Error) => void
 ): Unsubscribe {
   const q = query(collection(db, 'cases', caseId, 'notes'), orderBy('createdAt', 'desc'));
   return onSnapshot(
@@ -618,7 +619,11 @@ export function subscribeCaseNotes(
       );
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, `cases/${caseId}/notes`);
+      if (onError) {
+        onError(error);
+      } else {
+        handleFirestoreError(error, OperationType.LIST, `cases/${caseId}/notes`);
+      }
     }
   );
 }
@@ -629,12 +634,24 @@ export async function addCaseNote(
   procedureId: string,
   text: string
 ): Promise<void> {
+  const trimmedText = text.trim().slice(0, 2000);
+  const safeProcedureId = procedureId.trim().slice(0, 120);
+  if (!trimmedText) {
+    throw new Error('Escribe una nota antes de guardarla.');
+  }
+  if (!safeProcedureId) {
+    throw new Error('Selecciona un trámite válido para asociar la nota.');
+  }
+  const safeAuthorName =
+    (user.displayName || user.email?.split('@')[0] || 'Familiar').trim().slice(0, 120) ||
+    'Familiar';
+
   const noteId = makeId('note');
   const noteData: Omit<CaseNote, 'id'> = {
     authorUid: user.uid,
-    authorName: user.displayName || user.email?.split('@')[0] || 'Familiar',
-    procedureId,
-    text: text.trim().slice(0, 2000),
+    authorName: safeAuthorName,
+    procedureId: safeProcedureId,
+    text: trimmedText,
     createdAt: new Date().toISOString(),
   };
   try {

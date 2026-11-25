@@ -15,8 +15,7 @@ import {
   Home,
   ListChecks,
   Lock,
-  MessageSquare,
-  Trash2,
+  StickyNote,
   Users,
   X,
 } from 'lucide-react';
@@ -25,7 +24,6 @@ import { CASE_PRICE_LABEL } from '../config/pricing';
 import { ADMIN_EMAIL } from '../firebase';
 import {
   addCaseNote,
-  deleteCaseNote,
   saveCaseReminderLog,
   subscribeCaseDocuments,
   subscribeCaseInvitations,
@@ -63,6 +61,7 @@ import { CaseFamilyTab } from './CaseFamilyTab';
 import { CaseToolsPanel } from './CaseToolsPanel';
 import { LegalDisclaimerFooter } from './LegalDisclaimerFooter';
 import { LegalFaqDrawer } from './LegalFaqDrawer';
+import { MAX_NOTE_LENGTH, ProcedureQuickNotes } from './ProcedureQuickNotes';
 import { UnlockCaseModal } from './UnlockCaseModal';
 
 interface CaseWorkspaceProps {
@@ -96,11 +95,15 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
   const [members, setMembers] = useState<CaseMember[]>([]);
   const [invitations, setInvitations] = useState<FamilyInvitation[]>([]);
   const [notes, setNotes] = useState<CaseNote[]>([]);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [expandedNoteProcId, setExpandedNoteProcId] = useState<string | null>(null);
+  const [quickNoteProcId, setQuickNoteProcId] = useState<string>('');
+  const [quickNoteText, setQuickNoteText] = useState('');
+  const [quickNoteBusy, setQuickNoteBusy] = useState(false);
+  const [quickNoteError, setQuickNoteError] = useState<string | null>(null);
   const [uploadedDocs, setUploadedDocs] = useState<CaseDocument[]>([]);
   const [reminderLogs, setReminderLogs] = useState<CaseReminderLog[]>([]);
   const [toolsSubTab, setToolsSubTab] = useState<'assistant' | 'templates' | 'directory' | 'reminders'>('assistant');
-  const [newNoteText, setNewNoteText] = useState('');
-  const [noteBusy, setNoteBusy] = useState(false);
 
   const isOwner = bereavementCase.ownerId === user.uid;
   const isAdmin = user.email === ADMIN_EMAIL && user.emailVerified;
@@ -110,7 +113,16 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
 
   useEffect(() => {
     const unsubMembers = subscribeCaseMembers(bereavementCase.id, setMembers);
-    const unsubNotes = subscribeCaseNotes(bereavementCase.id, setNotes);
+    const unsubNotes = subscribeCaseNotes(
+      bereavementCase.id,
+      (list) => {
+        setNotes(list);
+        setNotesError(null);
+      },
+      () => {
+        setNotesError('No se pudieron cargar las notas rápidas del caso.');
+      }
+    );
     const unsubDocs = subscribeCaseDocuments(bereavementCase.id, setUploadedDocs);
     const unsubReminders = subscribeCaseReminders(bereavementCase.id, setReminderLogs);
     const unsubInvites = isOwner
@@ -126,8 +138,13 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
   }, [bereavementCase.id, isOwner, user.uid]);
 
   const procedures = buildPersonalizedProcedures(bereavementCase, catalog);
+  const unlockedProcedures = procedures.filter((p) => !p.isLockedByPlan);
   const matchingAlerts = getMatchingLegalAlerts(bereavementCase, procedures, legalAlerts);
   const selectedProc = procedures.find((p) => p.id === selectedProcId) || null;
+  const activeQuickNoteProcId =
+    unlockedProcedures.some((p) => p.id === quickNoteProcId)
+      ? quickNoteProcId
+      : unlockedProcedures[0]?.id || '';
 
   // Automatically keep server-side Resend deadline scheduler synced with current case state
   useEffect(() => {
@@ -212,15 +229,20 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
     });
   };
 
-  const handleAddNote = async (e: React.FormEvent, procId: string) => {
+  const handleQuickNoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canCollaborate || !newNoteText.trim()) return;
-    setNoteBusy(true);
+    const trimmed = quickNoteText.trim();
+    if (!canCollaborate || !activeQuickNoteProcId || !trimmed || quickNoteBusy) return;
+    setQuickNoteBusy(true);
+    setQuickNoteError(null);
     try {
-      await addCaseNote(bereavementCase.id, user, procId, newNoteText);
-      setNewNoteText('');
+      await addCaseNote(bereavementCase.id, user, activeQuickNoteProcId, trimmed);
+      setQuickNoteText('');
+      showToast('Nota rápida guardada.');
+    } catch {
+      setQuickNoteError('No se pudo guardar la nota rápida en Firestore. Inténtalo de nuevo.');
     } finally {
-      setNoteBusy(false);
+      setQuickNoteBusy(false);
     }
   };
 
@@ -276,55 +298,106 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
         }`
       : 'Sin fecha fija';
 
+    const procNotes = notes.filter((n) => n.procedureId === proc.id);
+    const isNotesOpen = expandedNoteProcId === proc.id;
+
     return (
       <div
         key={proc.id}
-        className="rounded-xl border border-[#E7E2D8] bg-white p-4 flex items-start justify-between gap-3 hover:border-[#CBBCA2] transition-colors"
+        className="rounded-xl border border-[#E7E2D8] bg-white p-4 hover:border-[#CBBCA2] transition-colors"
       >
-        <div className="flex items-start gap-3 min-w-0 flex-1">
-          <button
-            type="button"
-            onClick={() => void handleToggleTaskDone(proc)}
-            disabled={!canCollaborate}
-            aria-label={isDone ? `Marcar ${proc.title} como pendiente` : `Marcar ${proc.title} como hecho`}
-            className={`mt-0.5 min-w-[28px] h-7 rounded-lg border flex items-center justify-center shrink-0 transition-colors ${
-              isDone
-                ? 'bg-[#2C6B4B] border-[#2C6B4B] text-white'
-                : 'bg-[#FAF8F5] border-[#C9C0B1] text-transparent hover:border-[#8F754B]'
-            }`}
-          >
-            <Check className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSelectedProcId(proc.id)}
-            className="text-left min-w-0 flex-1"
-          >
-            <p
-              className={`text-sm sm:text-base font-medium leading-snug ${
-                isDone ? 'line-through text-[#7A7D85]' : 'text-[#141518]'
+        <div className="flex items-start justify-between gap-2 sm:gap-3">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => void handleToggleTaskDone(proc)}
+              disabled={!canCollaborate}
+              aria-label={isDone ? `Marcar ${proc.title} como pendiente` : `Marcar ${proc.title} como hecho`}
+              className={`mt-0.5 min-w-[28px] h-7 rounded-lg border flex items-center justify-center shrink-0 transition-colors ${
+                isDone
+                  ? 'bg-[#2C6B4B] border-[#2C6B4B] text-white'
+                  : 'bg-[#FAF8F5] border-[#C9C0B1] text-transparent hover:border-[#8F754B]'
               }`}
             >
-              {proc.title}
-            </p>
-            <p className="mt-1 text-xs text-[#666A73] font-mono-num">
-              {deadlineNote}
-              {proc.urgencyStatus === 'due_soon' && !isDone ? ' · Vence pronto' : ''}
-              {proc.urgencyStatus === 'overdue' && !isDone ? ' · Fecha pasada' : ''}
-              {state?.assigneeName ? ` · Responsable: ${state.assigneeName}` : ''}
-            </p>
-          </button>
+              <Check className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedProcId(proc.id)}
+              className="text-left min-w-0 flex-1"
+            >
+              <p
+                className={`text-sm sm:text-base font-medium leading-snug ${
+                  isDone ? 'line-through text-[#7A7D85]' : 'text-[#141518]'
+                }`}
+              >
+                {proc.title}
+              </p>
+              <p className="mt-1 text-xs text-[#666A73] font-mono-num">
+                {deadlineNote}
+                {proc.urgencyStatus === 'due_soon' && !isDone ? ' · Vence pronto' : ''}
+                {proc.urgencyStatus === 'overdue' && !isDone ? ' · Fecha pasada' : ''}
+                {state?.assigneeName ? ` · Responsable: ${state.assigneeName}` : ''}
+                {procNotes.length > 0
+                  ? ` · ${procNotes.length} ${procNotes.length === 1 ? 'nota' : 'notas'}`
+                  : ''}
+              </p>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={() =>
+                setExpandedNoteProcId((prev) => (prev === proc.id ? null : proc.id))
+              }
+              aria-expanded={isNotesOpen}
+              aria-label={`Notas rápidas de ${proc.title}`}
+              className={`min-h-[44px] px-2.5 rounded-lg inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
+                isNotesOpen
+                  ? 'bg-[#F5F1EA] text-[#141518]'
+                  : procNotes.length > 0
+                    ? 'text-[#7D633A] hover:bg-[#FAF8F5]'
+                    : 'text-[#666A73] hover:bg-[#FAF8F5] hover:text-[#141518]'
+              }`}
+            >
+              <StickyNote className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Notas</span>
+              {procNotes.length > 0 && (
+                <span className="font-mono-num">({procNotes.length})</span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedProcId(proc.id)}
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-[#7A7D85] hover:bg-[#FAF8F5] hover:text-[#141518] shrink-0"
+              aria-label={`Abrir ficha de ${proc.title}`}
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setSelectedProcId(proc.id)}
-          className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-[#7A7D85] hover:bg-[#FAF8F5] hover:text-[#141518] shrink-0"
-          aria-label={`Abrir ficha de ${proc.title}`}
-        >
-          <ChevronRight className="w-5 h-5" />
-        </button>
+        {isNotesOpen && (
+          <div className="mt-3.5 pt-3.5 border-t border-[#EFECE5]">
+            <ProcedureQuickNotes
+              caseId={bereavementCase.id}
+              procedureId={proc.id}
+              user={user}
+              isOwner={isOwner}
+              isAdmin={isAdmin}
+              canCollaborate={canCollaborate}
+              notes={notes}
+              compact
+              autoFocus={canCollaborate}
+              onNoteSaved={() => showToast('Nota rápida guardada.')}
+              onNoteDeleted={() => showToast('Nota eliminada.')}
+              onOpenProcedureDetail={() => setSelectedProcId(proc.id)}
+            />
+          </div>
+        )}
       </div>
     );
   };
@@ -705,6 +778,125 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
                   </div>
                 </div>
 
+                {/* Quick Notes Card in Resumen */}
+                <div className="rounded-2xl bg-white border border-[#E7E2D8] p-5 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <StickyNote className="w-4 h-4 text-[#8F754B] shrink-0" />
+                      <h3 className="text-base font-semibold text-[#141518] truncate">
+                        Notas rápidas
+                      </h3>
+                    </div>
+                    <span className="text-xs font-mono-num text-[#666A73] whitespace-nowrap shrink-0">
+                      {notes.length} {notes.length === 1 ? 'nota' : 'notas'}
+                    </span>
+                  </div>
+
+                  {notesError && (
+                    <div
+                      role="alert"
+                      className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900"
+                    >
+                      {notesError}
+                    </div>
+                  )}
+
+                  {canCollaborate && unlockedProcedures.length > 0 && (
+                    <form onSubmit={(e) => void handleQuickNoteSubmit(e)} className="space-y-2.5">
+                      <div>
+                        <label
+                          htmlFor="quickNoteProcSelect"
+                          className="block text-xs font-medium text-[#5B5E65] mb-1"
+                        >
+                          Trámite vinculado
+                        </label>
+                        <select
+                          id="quickNoteProcSelect"
+                          value={activeQuickNoteProcId}
+                          onChange={(e) => setQuickNoteProcId(e.target.value)}
+                          className="w-full min-h-[44px] rounded-xl border border-[#D8D0C2] bg-[#FAF8F5] px-3 text-xs sm:text-sm text-[#141518] focus:outline-none focus:ring-2 focus:ring-[#8F754B]/40 focus:border-[#8F754B]"
+                        >
+                          {unlockedProcedures.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={quickNoteText}
+                          onChange={(e) => setQuickNoteText(e.target.value)}
+                          maxLength={MAX_NOTE_LENGTH}
+                          placeholder="Apunta un dato, cita o teléfono..."
+                          aria-label="Texto de nota rápida"
+                          className="flex-1 min-h-[44px] rounded-xl border border-[#D8D0C2] bg-[#FAF8F5] px-3.5 text-sm text-[#141518] placeholder:text-[#7A7D85] focus:outline-none focus:ring-2 focus:ring-[#8F754B]/40 focus:border-[#8F754B]"
+                        />
+                        <button
+                          type="submit"
+                          disabled={quickNoteBusy || !quickNoteText.trim() || !activeQuickNoteProcId}
+                          className="min-h-[44px] px-4 rounded-xl bg-[#141518] text-[#F6F4EF] text-xs font-semibold hover:bg-[#25272D] disabled:opacity-50 whitespace-nowrap shrink-0"
+                        >
+                          {quickNoteBusy ? 'Guardando...' : 'Guardar'}
+                        </button>
+                      </div>
+
+                      {quickNoteError && (
+                        <p role="alert" className="text-xs text-red-700">
+                          {quickNoteError}
+                        </p>
+                      )}
+                    </form>
+                  )}
+
+                  {notes.length === 0 ? (
+                    <p className="text-xs text-[#666A73] leading-relaxed">
+                      Guarda apuntes breves vinculados a cualquier trámite (números de expediente,
+                      citas o contactos) para tenerlos siempre a mano.
+                    </p>
+                  ) : (
+                    <div className="pt-2 border-t border-[#EFECE5] divide-y divide-[#EFECE5]">
+                      {notes.slice(0, 4).map((note) => {
+                        const linkedProc = procedures.find((p) => p.id === note.procedureId);
+                        const parsedDate = new Date(note.createdAt);
+                        const dateStr = Number.isNaN(parsedDate.getTime())
+                          ? ''
+                          : parsedDate.toLocaleDateString('es-ES', {
+                              day: 'numeric',
+                              month: 'short',
+                            });
+                        return (
+                          <button
+                            key={note.id}
+                            type="button"
+                            onClick={() => {
+                              if (linkedProc && !linkedProc.isLockedByPlan) {
+                                setSelectedProcId(linkedProc.id);
+                              } else {
+                                setActiveTab('tramites');
+                              }
+                            }}
+                            className="w-full py-2.5 text-left hover:bg-[#FAF8F5] px-1 rounded transition-colors"
+                          >
+                            <p className="text-xs font-medium text-[#7D633A] truncate">
+                              {linkedProc?.title || 'Trámite del caso'}
+                            </p>
+                            <p className="text-sm text-[#1C1E22] line-clamp-2 mt-0.5 leading-snug">
+                              {note.text}
+                            </p>
+                            <p className="text-[11px] text-[#666A73] mt-1 font-mono-num">
+                              {note.authorName}
+                              {dateStr ? ` · ${dateStr}` : ''}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 <div className="rounded-2xl border border-[#E7E2D8] bg-[#F5F2EC] p-4 text-xs text-[#5B5E65] leading-relaxed">
                   «Después del adiós» es una herramienta de organización e información práctica. No
                   ofrece asesoramiento jurídico, fiscal o notarial.
@@ -980,69 +1172,19 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
                 </p>
               </div>
 
-              {/* Shared Family Notes for this Procedure */}
-              <div className="pt-4 border-t border-[#E7E2D8] space-y-3">
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-[#8F754B]" />
-                  <h3 className="text-sm font-semibold text-[#141518]">
-                    Notas compartidas de la familia
-                  </h3>
-                </div>
-
-                {canCollaborate && (
-                  <form
-                    onSubmit={(e) => void handleAddNote(e, selectedProc.id)}
-                    className="flex gap-2"
-                  >
-                    <input
-                      type="text"
-                      value={newNoteText}
-                      onChange={(e) => setNewNoteText(e.target.value)}
-                      placeholder="Añade un número de expediente, llamada o recordatorio..."
-                      className="flex-1 min-h-[44px] rounded-xl border border-[#D8D0C2] bg-[#FAF8F5] px-3.5 text-sm"
-                    />
-                    <button
-                      type="submit"
-                      disabled={noteBusy || !newNoteText.trim()}
-                      className="min-h-[44px] px-4 rounded-xl bg-[#141518] text-[#F6F4EF] text-xs font-semibold disabled:opacity-50"
-                    >
-                      Guardar
-                    </button>
-                  </form>
-                )}
-
-                <div className="space-y-2">
-                  {notes
-                    .filter((n) => n.procedureId === selectedProc.id)
-                    .map((n) => (
-                      <div
-                        key={n.id}
-                        className="rounded-xl border border-[#EFECE5] bg-[#FAF8F5] p-3 flex items-start justify-between gap-3"
-                      >
-                        <div>
-                          <p className="text-sm text-[#1C1E22]">{n.text}</p>
-                          <p className="text-[11px] text-[#7A7D85] mt-1">
-                            {n.authorName} · {new Date(n.createdAt).toLocaleDateString('es-ES')}
-                          </p>
-                        </div>
-                        {(isOwner || n.authorUid === user.uid) && (
-                          <button
-                            type="button"
-                            onClick={() => void deleteCaseNote(bereavementCase.id, n.id)}
-                            className="p-1.5 text-[#7A7D85] hover:text-red-700"
-                            aria-label="Borrar nota"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  {notes.filter((n) => n.procedureId === selectedProc.id).length === 0 && (
-                    <p className="text-xs text-[#7A7D85]">
-                      Aún no hay notas en este trámite.
-                    </p>
-                  )}
-                </div>
+              {/* Shared Quick Notes for this Procedure */}
+              <div className="pt-4 border-t border-[#E7E2D8]">
+                <ProcedureQuickNotes
+                  caseId={bereavementCase.id}
+                  procedureId={selectedProc.id}
+                  user={user}
+                  isOwner={isOwner}
+                  isAdmin={isAdmin}
+                  canCollaborate={canCollaborate}
+                  notes={notes}
+                  onNoteSaved={() => showToast('Nota rápida guardada.')}
+                  onNoteDeleted={() => showToast('Nota eliminada.')}
+                />
               </div>
             </div>
           </div>
