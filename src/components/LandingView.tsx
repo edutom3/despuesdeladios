@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, CalendarClock, CheckCircle2, FileText, ShieldCheck, Users } from 'lucide-react';
+import { ArrowRight, CalendarClock, CheckCircle2, ExternalLink, FileText, ShieldCheck, Users } from 'lucide-react';
 import { LegalDisclaimerFooter } from './LegalDisclaimerFooter';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -7,12 +7,14 @@ interface LandingViewProps {
   onStartLogin: () => void;
   authLoading: boolean;
   authError: string | null;
+  showNewTabAuthHelp?: boolean;
 }
 
 export const LandingView: React.FC<LandingViewProps> = ({
   onStartLogin,
   authLoading,
   authError,
+  showNewTabAuthHelp = false,
 }) => {
   return (
     <div className="min-h-screen flex flex-col bg-[#121316] text-[#F6F4EF]">
@@ -72,8 +74,19 @@ export const LandingView: React.FC<LandingViewProps> = ({
               </p>
 
               {authError && (
-                <div className="mt-5 rounded-xl border border-amber-400/40 bg-amber-950/40 px-4 py-3 text-sm text-amber-100">
-                  {authError}
+                <div className="mt-5 rounded-xl border border-amber-400/40 bg-amber-950/40 px-4 py-3.5 text-sm text-amber-100 space-y-3">
+                  <p className="leading-relaxed">{authError}</p>
+                  {showNewTabAuthHelp && (
+                    <a
+                      href={typeof window !== 'undefined' ? window.location.href : '/'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="min-h-[40px] px-4 py-2 rounded-lg bg-[#D6C3A5] text-[#141518] text-xs font-semibold hover:bg-[#E4D5BC] inline-flex items-center gap-2 whitespace-nowrap"
+                    >
+                      <span>Abrir en pestaña nueva para entrar</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
                 </div>
               )}
 

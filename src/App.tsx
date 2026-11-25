@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import {
+  getRedirectResult,
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  type User,
+} from 'firebase/auth';
 import { ADMIN_EMAIL, auth, googleProvider, testFirestoreConnection } from './firebase';
 import {
   INITIAL_LEGAL_ALERTS,
@@ -49,6 +56,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authNeedsNewTab, setAuthNeedsNewTab] = useState(false);
 
   const [screen, setScreen] = useState<AppScreen>('cases');
   const [cases, setCases] = useState<BereavementCase[]>([]);
@@ -75,9 +83,18 @@ export default function App() {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
 
-  // Check Firestore connection on startup
+  // Check Firestore connection and any pending Google redirect login on startup
   useEffect(() => {
     void testFirestoreConnection();
+    void getRedirectResult(auth).catch((err) => {
+      const code = (err as { code?: string })?.code || '';
+      if (code && code !== 'auth/no-auth-event') {
+        console.error('Redirect auth error:', code, err);
+        setAuthError(
+          `No se pudo completar el acceso con Google (${code}). Vuelve a intentarlo.`
+        );
+      }
+    });
   }, []);
 
   // Auth listener
@@ -188,15 +205,63 @@ export default function App() {
   }, [user]);
 
   const handleLogin = async () => {
+    if (authLoading) return;
     setAuthError(null);
+    setAuthNeedsNewTab(false);
     setAuthLoading(true);
+    const isInIframe = (() => {
+      try {
+        return window.self !== window.top;
+      } catch {
+        return true;
+      }
+    })();
+
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '';
-      if (!msg.includes('popup-closed-by-user')) {
+      const fbErr = err as { code?: string; message?: string };
+      const code = fbErr?.code || '';
+      const msg = fbErr?.message || '';
+      console.error('Google Sign-In error:', code, msg);
+
+      if (code === 'auth/popup-closed-by-user' || msg.includes('popup-closed-by-user')) {
+        setAuthError(null);
+      } else if (code === 'auth/cancelled-popup-request') {
+        setAuthError('Ya hay una ventana de acceso abierta. Revisa las ventanas de tu navegador o inténtalo de nuevo.');
+      } else if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment' ||
+        code === 'auth/internal-error' ||
+        code === 'auth/web-storage-unsupported'
+      ) {
+        if (!isInIframe) {
+          try {
+            await signInWithRedirect(auth, googleProvider);
+            return;
+          } catch (redirErr) {
+            console.error('Redirect fallback error:', redirErr);
+          }
+        }
+        setAuthNeedsNewTab(true);
         setAuthError(
-          'No se pudo completar el inicio de sesión con Google. Inténtalo de nuevo.'
+          isInIframe
+            ? `Tu navegador bloqueó la ventana de Google dentro de esta vista previa (${code || 'ventana bloqueada'}). Abre la app en una pestaña nueva para iniciar sesión sin restricciones.`
+            : `Tu navegador ha bloqueado la ventana emergente de Google (${code || 'popup bloqueado'}). Permite las ventanas emergentes o abre la app en una pestaña nueva.`
+        );
+      } else if (code === 'auth/unauthorized-domain') {
+        setAuthNeedsNewTab(isInIframe);
+        setAuthError(
+          `El dominio actual (${window.location.hostname}) no está autorizado en Firebase Auth (auth/unauthorized-domain).`
+        );
+      } else if (code === 'auth/network-request-failed') {
+        setAuthError(
+          'No se pudo conectar con Google por un problema de red o bloqueador de contenido. Comprueba tu conexión e inténtalo de nuevo.'
+        );
+      } else {
+        setAuthNeedsNewTab(isInIframe);
+        setAuthError(
+          `No se pudo completar el inicio de sesión con Google${code ? ` (${code})` : ''}. Inténtalo de nuevo o abre la aplicación en una pestaña nueva.`
         );
       }
     } finally {
@@ -271,6 +336,7 @@ export default function App() {
           onStartLogin={() => void handleLogin()}
           authLoading={authLoading}
           authError={authError}
+          showNewTabAuthHelp={authNeedsNewTab}
         />
       ) : screen === 'new_case' ? (
         <QuestionnaireWizard
