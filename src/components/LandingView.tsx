@@ -1,5 +1,6 @@
 import React from 'react';
-import { ArrowRight, CalendarClock, CheckCircle2, ExternalLink, FileText, ShieldCheck, Users } from 'lucide-react';
+import { ArrowRight, CalendarClock, CheckCircle2, CreditCard, ExternalLink, FileText, ShieldCheck, Users } from 'lucide-react';
+import { CASE_PRICE_LABEL } from '../config/pricing';
 import { LegalDisclaimerFooter } from './LegalDisclaimerFooter';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -50,7 +51,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
               disabled={authLoading}
               className="min-h-[44px] px-5 py-2 rounded-xl bg-[#D6C3A5] text-[#141518] text-sm font-semibold hover:bg-[#E3D3B8] transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
             >
-              {authLoading ? 'Entrando...' : 'Abrir mi caso'}
+              {authLoading ? 'Entrando...' : `Empezar (${CASE_PRICE_LABEL})`}
             </button>
           </div>
         </div>
@@ -97,16 +98,22 @@ export const LandingView: React.FC<LandingViewProps> = ({
                   disabled={authLoading}
                   className="min-h-[48px] px-6 py-3 rounded-xl bg-[#D6C3A5] text-[#141518] text-base font-semibold hover:bg-[#E4D5BC] transition-colors inline-flex items-center gap-2.5"
                 >
-                  <span>{authLoading ? 'Abriendo acceso...' : 'Abrir mi caso con Google'}</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <CreditCard className="w-4 h-4 shrink-0" />
+                  <span>
+                    {authLoading
+                      ? 'Abriendo acceso...'
+                      : `Entrar con Google y pagar ${CASE_PRICE_LABEL}`}
+                  </span>
+                  <ArrowRight className="w-4 h-4 shrink-0" />
                 </button>
                 <PWAInstallButton variant="dark" />
               </div>
 
               <div className="mt-6 pt-5 border-t border-white/10 text-xs text-[#A8A297] leading-relaxed">
-                Herramienta de organización e información práctica. No ofrece ni sustituye el
-                asesoramiento jurídico, fiscal o notarial. Acceso completo desde 19 € por caso
-                (pago único para toda la familia) o con código de funeraria o aseguradora.
+                Acceso completo tras pago único de <strong className="text-[#F6F4EF]">{CASE_PRICE_LABEL}</strong>{' '}
+                por caso (o con código de funeraria o aseguradora). Herramienta de organización e
+                información práctica; no ofrece ni sustituye el asesoramiento jurídico, fiscal o
+                notarial.
               </div>
             </div>
 
@@ -280,9 +287,9 @@ export const LandingView: React.FC<LandingViewProps> = ({
                 <button
                   type="button"
                   onClick={onStartLogin}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-[#D6C3A5] text-[#141518] text-sm font-semibold hover:bg-[#E3D3B8] transition-colors shrink-0"
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-[#D6C3A5] text-[#141518] text-sm font-semibold hover:bg-[#E3D3B8] transition-colors shrink-0 whitespace-nowrap"
                 >
-                  Abrir mi caso
+                  Pagar {CASE_PRICE_LABEL} y empezar
                 </button>
               </div>
             </div>

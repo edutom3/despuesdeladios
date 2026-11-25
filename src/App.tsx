@@ -249,7 +249,7 @@ export default function App() {
             sessionId: stripeSessionId,
           }),
         });
-        const data = (await resp.json()) as { verified?: boolean; receiptId?: string };
+        const data = (await resp.json()) as { verified?: boolean; receiptId?: string; error?: string };
         if (resp.ok && data.verified && data.receiptId) {
           if (newCasePaid) {
             const payment: PendingCasePayment = {
@@ -267,7 +267,15 @@ export default function App() {
             setActiveCaseId(unlockCaseId);
             setScreen('case_detail');
           }
+        } else {
+          setInviteMessage(data.error || 'No se pudo verificar el pago con Stripe. Inténtalo de nuevo.');
         }
+      } catch (err) {
+        setInviteMessage(
+          err instanceof Error
+            ? err.message
+            : 'No se pudo confirmar el pago al volver de Stripe. Inténtalo de nuevo.'
+        );
       } finally {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
@@ -361,7 +369,7 @@ export default function App() {
   };
 
   const handleRequestNewCase = () => {
-    if (isAdmin || pendingNewCasePayment) {
+    if (pendingNewCasePayment) {
       setScreen('new_case');
     } else {
       setPayModalTarget('new_case');
@@ -376,7 +384,7 @@ export default function App() {
     answers: QuestionnaireAnswers;
   }) => {
     if (!user) return;
-    if (!isAdmin && !pendingNewCasePayment) {
+    if (!pendingNewCasePayment) {
       setPayModalTarget('new_case');
       setScreen('cases');
       return;
@@ -426,12 +434,12 @@ export default function App() {
           authError={authError}
           showNewTabAuthHelp={authNeedsNewTab}
         />
-      ) : screen === 'new_case' && (isAdmin || Boolean(pendingNewCasePayment)) ? (
+      ) : screen === 'new_case' && Boolean(pendingNewCasePayment) ? (
         <QuestionnaireWizard
           onCancel={() => setScreen('cases')}
           onSave={handleCreateCase}
         />
-      ) : screen === 'edit_case' && activeCase && (activeCase.unlocked || isAdmin) ? (
+      ) : screen === 'edit_case' && activeCase && activeCase.unlocked ? (
         <QuestionnaireWizard
           initialCase={activeCase}
           onCancel={() => setScreen('case_detail')}

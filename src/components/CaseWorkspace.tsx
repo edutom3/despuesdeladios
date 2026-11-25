@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Compass,
+  CreditCard,
   Download,
   Edit2,
   FileText,
@@ -402,7 +403,7 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
     );
   };
 
-  if (!bereavementCase.unlocked && !isAdmin) {
+  if (!bereavementCase.unlocked) {
     return (
       <div className="min-h-screen flex flex-col bg-[#FAF8F5] text-[#1C1E22]">
         <header className="sticky top-0 z-30 border-b border-[#E7E2D8] bg-[#FAF8F5]/95 backdrop-blur-md">
@@ -415,7 +416,7 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
               <ArrowLeft className="w-4 h-4" />
               <span>Volver a Mis casos</span>
             </button>
-            <span className="text-xs font-mono-num text-[#7D633A]">Caso pendiente de activación</span>
+            <span className="text-xs font-mono-num text-[#7D633A]">Caso pendiente de pago</span>
           </div>
         </header>
 
@@ -423,24 +424,24 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
           <div className="w-full rounded-2xl bg-white border border-[#E7E2D8] p-6 sm:p-8 space-y-5 shadow-sm">
             <div className="flex items-center gap-2 text-xs font-medium text-[#8F754B]">
               <Lock className="w-4 h-4" />
-              <span>Acceso de pago requerido</span>
+              <span>Pago obligatorio para acceder</span>
             </div>
             <h1 className="font-display text-3xl font-semibold text-[#141518]">
-              Activa el caso de {bereavementCase.deceasedName}
+              Paga para acceder al caso de {bereavementCase.deceasedName}
             </h1>
             <p className="text-sm text-[#5B5E65] leading-relaxed">
-              Para consultar la lista personalizada de trámites, el calendario con plazos legales,
-              la carpeta de documentos, los modelos de escritos y las invitaciones familiares es
-              necesario activar este caso con un pago único de {CASE_PRICE_LABEL} o con un código
-              de tu funeraria o aseguradora.
+              Sin completar el pago único de <strong>{CASE_PRICE_LABEL}</strong> (o introducir un
+              código de funeraria o aseguradora) no es posible acceder a los trámites, calendario,
+              notas, documentos, invitaciones ni herramientas de este caso.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setShowUnlockModal(true)}
-                className="flex-1 min-h-[48px] px-5 rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D]"
+                className="flex-1 min-h-[48px] px-5 rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] inline-flex items-center justify-center gap-2 whitespace-nowrap"
               >
-                Activar ahora ({CASE_PRICE_LABEL} o código)
+                <CreditCard className="w-4 h-4 text-[#D6C3A5] shrink-0" />
+                <span>Pagar {CASE_PRICE_LABEL} o usar código</span>
               </button>
               <button
                 type="button"

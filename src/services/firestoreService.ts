@@ -151,10 +151,9 @@ export async function createBereavementCase(
   const caseId = makeId('case');
   const now = new Date().toISOString();
   const displayName = user.displayName || user.email?.split('@')[0] || 'Titular';
-  const isAdmin = user.email === ADMIN_EMAIL && user.emailVerified;
 
-  if (!paymentProof && !isAdmin) {
-    throw new Error('Es necesario activar el pago o aplicar un código válido antes de crear el caso.');
+  if (!paymentProof) {
+    throw new Error('Es necesario completar el pago o aplicar un código válido antes de crear el caso.');
   }
 
   const newCaseData: Omit<BereavementCase, 'id'> = {
@@ -166,9 +165,8 @@ export async function createBereavementCase(
     deathPlace: payload.deathPlace.trim(),
     ccaa: payload.ccaa,
     answers: payload.answers,
-    unlocked: isAdmin && !paymentProof ? true : false,
-    unlockMethod: isAdmin && !paymentProof ? 'stripe' : 'free',
-    ...(isAdmin && !paymentProof ? { unlockCodeUsed: 'ADMIN_ACCESS' } : {}),
+    unlocked: false,
+    unlockMethod: 'free',
     memberUids: [user.uid],
     collaboratorUids: [user.uid],
     taskStates: {},

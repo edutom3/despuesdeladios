@@ -221,10 +221,10 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
                 href={stripeExternalUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full min-h-[48px] rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] transition-colors inline-flex items-center justify-center gap-2"
+                className="w-full min-h-[48px] rounded-xl bg-[#8F754B] text-white text-sm font-semibold hover:bg-[#7A633E] transition-colors inline-flex items-center justify-center gap-2"
               >
-                <span>Ir al pago seguro ({CASE_PRICE_LABEL})</span>
-                <ExternalLink className="w-4 h-4 text-[#D6C3A5]" />
+                <span>Continuar al pago seguro ({CASE_PRICE_LABEL})</span>
+                <ExternalLink className="w-4 h-4" />
               </a>
             </div>
           ) : !showTestCardForm ? (
@@ -238,7 +238,7 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
               <span>
                 {stripeBusy
                   ? 'Conectando con Stripe...'
-                  : `Pagar ${CASE_PRICE_LABEL} y empezar ahora`}
+                  : `Pagar ${CASE_PRICE_LABEL} con tarjeta (Stripe)`}
               </span>
             </button>
           ) : (

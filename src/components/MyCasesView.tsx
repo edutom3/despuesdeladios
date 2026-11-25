@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, CheckCircle2, HelpCircle, Lock, LogOut, Plus, Shield, Trash2, Users } from 'lucide-react';
+import { ArrowRight, CheckCircle2, CreditCard, HelpCircle, KeyRound, Lock, LogOut, Plus, Shield, Trash2, Users } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { CASE_PRICE_LABEL, type PendingCasePayment } from '../config/pricing';
 import { ADMIN_EMAIL } from '../firebase';
@@ -45,7 +45,7 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
 }) => {
   const [faqOpen, setFaqOpen] = useState(false);
   const isAdmin = user.email === ADMIN_EMAIL && user.emailVerified;
-  const hasAnyUnlockedAccess = isAdmin || cases.some((c) => c.unlocked);
+  const hasAnyUnlockedAccess = cases.some((c) => c.unlocked);
   const ownCases = cases.filter((c) => c.ownerId === user.uid);
   const sharedCases = cases.filter((c) => c.ownerId !== user.uid);
 
@@ -53,7 +53,7 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
     const procs = buildPersonalizedProcedures(c, catalog);
     const doneCount = procs.filter((p) => c.taskStates[p.id]?.done).length;
     const days = daysSinceDate(c.deathDate);
-    const canEnter = c.unlocked || isAdmin;
+    const canEnter = c.unlocked;
 
     return (
       <div
@@ -105,15 +105,15 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
         <button
           type="button"
           onClick={() => (canEnter ? onSelectCase(c.id) : onUnlockExistingCase(c))}
-          className={`w-full min-h-[44px] rounded-xl text-sm font-medium transition-colors inline-flex items-center justify-center gap-2 ${
+          className={`w-full min-h-[44px] rounded-xl text-sm font-semibold transition-colors inline-flex items-center justify-center gap-2 ${
             canEnter
               ? 'bg-[#141518] text-[#F6F4EF] hover:bg-[#25272D]'
               : 'bg-[#8F754B] text-white hover:bg-[#7A633E]'
           }`}
         >
-          {!canEnter && <Lock className="w-4 h-4" />}
-          <span>{canEnter ? 'Abrir caso' : `Activar y abrir (${CASE_PRICE_LABEL})`}</span>
-          {canEnter && <ArrowRight className="w-4 h-4" />}
+          {!canEnter && <CreditCard className="w-4 h-4 shrink-0" />}
+          <span>{canEnter ? 'Abrir caso' : `Pagar ${CASE_PRICE_LABEL} para abrir`}</span>
+          {canEnter && <ArrowRight className="w-4 h-4 shrink-0" />}
         </button>
       </div>
     );
@@ -247,19 +247,47 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
               onClick={onCreateNewCase}
               className="min-h-[48px] px-5 py-2.5 rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
             >
-              <Plus className="w-4 h-4 text-[#D6C3A5]" />
+              {pendingNewCasePayment ? (
+                <Plus className="w-4 h-4 text-[#D6C3A5] shrink-0" />
+              ) : (
+                <CreditCard className="w-4 h-4 text-[#D6C3A5] shrink-0" />
+              )}
               <span>
-                {isAdmin || pendingNewCasePayment
+                {pendingNewCasePayment
                   ? 'Abrir un caso nuevo'
-                  : `Abrir un caso (${CASE_PRICE_LABEL})`}
+                  : `Pagar ${CASE_PRICE_LABEL} · Nuevo caso`}
               </span>
             </button>
           </div>
         </div>
 
+        {!pendingNewCasePayment && (ownCases.length > 0 || sharedCases.length > 0) && !hasAnyUnlockedAccess && (
+          <div className="rounded-2xl border border-[#CBBCA2] bg-[#F5EFE4] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-[#7D633A]">Acceso completo bajo pago único</p>
+              <p className="text-sm text-[#1C1E22] leading-relaxed">
+                Sin realizar el pago único de <strong>{CASE_PRICE_LABEL}</strong> (o aplicar un código
+                de funeraria) no es posible abrir ni gestionar los trámites del caso.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const lockedTarget = ownCases.find((c) => !c.unlocked) || sharedCases.find((c) => !c.unlocked);
+                if (lockedTarget) onUnlockExistingCase(lockedTarget);
+                else onCreateNewCase();
+              }}
+              className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#8F754B] text-white text-sm font-semibold hover:bg-[#7A633E] transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
+            >
+              <CreditCard className="w-4 h-4 shrink-0" />
+              <span>Pagar {CASE_PRICE_LABEL} ahora</span>
+            </button>
+          </div>
+        )}
+
         {ownCases.length === 0 && sharedCases.length === 0 ? (
           <div className="rounded-2xl border border-[#E7E2D8] bg-white p-8 sm:p-12 text-center max-w-2xl mx-auto">
-            {isAdmin || pendingNewCasePayment ? (
+            {pendingNewCasePayment ? (
               <>
                 <h2 className="font-display text-2xl sm:text-3xl font-semibold text-[#141518]">
                   Aún no tienes ningún caso guardado
@@ -283,22 +311,32 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
                   <Lock className="w-5 h-5 text-[#8F754B]" />
                 </div>
                 <h2 className="font-display text-2xl sm:text-3xl font-semibold text-[#141518]">
-                  Activa tu acceso para empezar
+                  Pago necesario para empezar ({CASE_PRICE_LABEL})
                 </h2>
                 <p className="mt-3 text-sm sm:text-base text-[#5B5E65] leading-relaxed">
-                  Con un pago único de <strong>{CASE_PRICE_LABEL}</strong> por caso (o con un código
-                  de tu funeraria o aseguradora) tendrás acceso completo desde el primer paso:
-                  cuestionario personalizado, todos los trámites, calendario de plazos, avisos por
-                  correo, documentos y colaboración con tu familia.
+                  Para poder crear tu caso y acceder al cuestionario, trámites, calendario, avisos
+                  por correo, notas rápidas, documentos y familia es necesario realizar un pago único
+                  de <strong>{CASE_PRICE_LABEL}</strong> (o introducir un código de tu funeraria o
+                  aseguradora).
                 </p>
-                <button
-                  type="button"
-                  onClick={onCreateNewCase}
-                  className="mt-6 min-h-[48px] px-6 py-3 rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] transition-colors inline-flex items-center gap-2"
-                >
-                  <Lock className="w-4 h-4 text-[#D6C3A5]" />
-                  <span>Activar acceso ({CASE_PRICE_LABEL} o código)</span>
-                </button>
+                <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={onCreateNewCase}
+                    className="w-full sm:w-auto min-h-[48px] px-6 py-3 rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap"
+                  >
+                    <CreditCard className="w-4 h-4 text-[#D6C3A5] shrink-0" />
+                    <span>Pagar {CASE_PRICE_LABEL} y empezar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onCreateNewCase}
+                    className="w-full sm:w-auto min-h-[48px] px-5 py-3 rounded-xl border border-[#D8D0C2] bg-white text-[#1C1E22] text-sm font-medium hover:bg-[#F5F1EA] transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap"
+                  >
+                    <KeyRound className="w-4 h-4 text-[#8F754B] shrink-0" />
+                    <span>Tengo un código</span>
+                  </button>
+                </div>
               </>
             )}
           </div>
