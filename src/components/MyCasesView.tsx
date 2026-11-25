@@ -1,10 +1,11 @@
-import React from 'react';
-import { ArrowRight, LogOut, Plus, Shield, Trash2, Users } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowRight, HelpCircle, LogOut, Plus, Shield, Trash2, Users } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { ADMIN_EMAIL } from '../firebase';
 import type { BereavementCase, FamilyInvitation, ProcedureCatalogItem } from '../types/domain';
 import { buildPersonalizedProcedures, daysSinceDate, formatDateES } from '../utils/caseEngine';
 import { LegalDisclaimerFooter } from './LegalDisclaimerFooter';
+import { LegalFaqDrawer } from './LegalFaqDrawer';
 
 interface MyCasesViewProps {
   user: User;
@@ -37,6 +38,7 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
   onOpenAdmin,
   onSignOut,
 }) => {
+  const [faqOpen, setFaqOpen] = useState(false);
   const isAdmin = user.email === ADMIN_EMAIL && user.emailVerified;
   const ownCases = cases.filter((c) => c.ownerId === user.uid);
   const sharedCases = cases.filter((c) => c.ownerId !== user.uid);
@@ -189,14 +191,25 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
             </h1>
           </div>
 
-          <button
-            type="button"
-            onClick={onCreateNewCase}
-            className="min-h-[48px] px-5 py-2.5 rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] transition-colors inline-flex items-center justify-center gap-2 shrink-0"
-          >
-            <Plus className="w-4 h-4 text-[#D6C3A5]" />
-            <span>Abrir un caso nuevo</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setFaqOpen(true)}
+              className="min-h-[48px] px-4 py-2.5 rounded-xl border border-[#D8D0C2] bg-white text-[#1C1E22] text-sm font-medium hover:bg-[#F5F1EA] transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
+            >
+              <HelpCircle className="w-4 h-4 text-[#8F754B]" />
+              <span>Dudas frecuentes</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onCreateNewCase}
+              className="min-h-[48px] px-5 py-2.5 rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-4 h-4 text-[#D6C3A5]" />
+              <span>Abrir un caso nuevo</span>
+            </button>
+          </div>
         </div>
 
         {ownCases.length === 0 && sharedCases.length === 0 ? (
@@ -240,6 +253,12 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
       </main>
 
       <LegalDisclaimerFooter variant="light" />
+
+      <LegalFaqDrawer
+        open={faqOpen}
+        onClose={() => setFaqOpen(false)}
+        cases={cases}
+      />
     </div>
   );
 };

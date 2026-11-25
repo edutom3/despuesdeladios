@@ -10,6 +10,7 @@ import {
   Download,
   Edit2,
   FileText,
+  HelpCircle,
   Home,
   ListChecks,
   Lock,
@@ -57,6 +58,7 @@ import { CaseDocumentsTab } from './CaseDocumentsTab';
 import { CaseFamilyTab } from './CaseFamilyTab';
 import { CaseToolsPanel } from './CaseToolsPanel';
 import { LegalDisclaimerFooter } from './LegalDisclaimerFooter';
+import { LegalFaqDrawer } from './LegalFaqDrawer';
 import { UnlockCaseModal } from './UnlockCaseModal';
 
 interface CaseWorkspaceProps {
@@ -84,6 +86,7 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
   const [procFilter, setProcFilter] = useState<'all' | 'pending' | 'done'>('all');
   const [selectedProcId, setSelectedProcId] = useState<string | null>(null);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [faqOpen, setFaqOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const [members, setMembers] = useState<CaseMember[]>([]);
@@ -358,6 +361,15 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
             )}
             <button
               type="button"
+              onClick={() => setFaqOpen(true)}
+              className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#D8D0C2] bg-white text-xs font-medium text-[#1C1E22] hover:bg-[#F5F1EA] inline-flex items-center gap-1.5 whitespace-nowrap"
+              aria-label="Abrir preguntas frecuentes"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-[#8F754B]" />
+              <span className="hidden sm:inline">Dudas frecuentes</span>
+            </button>
+            <button
+              type="button"
               onClick={() => downloadCaseSummaryPDF(bereavementCase, procedures, uploadedDocs)}
               className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#D8D0C2] bg-white text-xs font-medium text-[#1C1E22] hover:bg-[#F5F1EA] inline-flex items-center gap-1.5 whitespace-nowrap"
             >
@@ -576,6 +588,15 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
                           : 'Avisos automáticos por correo pausados'}
                       </span>
                       <span className="text-[#7D633A] font-semibold shrink-0">Configurar</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setFaqOpen(true)}
+                      className="w-full min-h-[42px] rounded-xl border border-[#E2DDD3] bg-[#FAF8F5] px-3.5 text-xs font-medium text-[#45484F] hover:bg-[#F1ECE2] flex items-center justify-between gap-2"
+                    >
+                      <span className="truncate">Preguntas frecuentes sobre trámites</span>
+                      <span className="text-[#7D633A] font-semibold shrink-0">Consultar</span>
                     </button>
                   </div>
                 </div>
@@ -934,6 +955,22 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
           }}
         />
       )}
+
+      <LegalFaqDrawer
+        open={faqOpen}
+        onClose={() => setFaqOpen(false)}
+        activeCase={bereavementCase}
+        onOpenProcedure={(procId) => {
+          const match = procedures.find((p) => p.id === procId);
+          if (match && !match.isLockedByPlan) {
+            setSelectedProcId(match.id);
+          } else if (match && match.isLockedByPlan) {
+            setShowUnlockModal(true);
+          } else {
+            setActiveTab('tramites');
+          }
+        }}
+      />
     </div>
   );
 };
