@@ -59,7 +59,9 @@ function paymentStorageKey(uid: string): string {
 
 function loadStoredPaidPass(uid: string): PendingCasePayment | null {
   try {
-    const raw = sessionStorage.getItem(paymentStorageKey(uid));
+    const raw =
+      localStorage.getItem(paymentStorageKey(uid)) ||
+      sessionStorage.getItem(paymentStorageKey(uid));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PendingCasePayment;
     if (
@@ -79,8 +81,10 @@ function loadStoredPaidPass(uid: string): PendingCasePayment | null {
 function saveStoredPaidPass(uid: string, payment: PendingCasePayment | null): void {
   try {
     if (!payment) {
+      localStorage.removeItem(paymentStorageKey(uid));
       sessionStorage.removeItem(paymentStorageKey(uid));
     } else {
+      localStorage.setItem(paymentStorageKey(uid), JSON.stringify(payment));
       sessionStorage.setItem(paymentStorageKey(uid), JSON.stringify(payment));
     }
   } catch {
@@ -102,6 +106,7 @@ export default function App() {
 
   const [pendingNewCasePayment, setPendingNewCasePayment] = useState<PendingCasePayment | null>(null);
   const [payModalTarget, setPayModalTarget] = useState<'new_case' | BereavementCase | null>(null);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
 
   const offlineCatalog = loadGlobalCatalogSnapshot();
   const [catalog, setCatalog] = useState<ProcedureCatalogItem[]>(
@@ -235,6 +240,7 @@ export default function App() {
 
     if (!stripeSessionId || (!newCasePaid && !unlockCaseId)) return;
 
+    setVerifyingPayment(true);
     void (async () => {
       try {
         const token = await user.getIdToken();
@@ -283,6 +289,7 @@ export default function App() {
             : 'No se pudo confirmar el pago al volver de Stripe. Inténtalo de nuevo.'
         );
       } finally {
+        setVerifyingPayment(false);
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     })();
@@ -440,6 +447,17 @@ export default function App() {
           authError={authError}
           showNewTabAuthHelp={authNeedsNewTab}
         />
+      ) : verifyingPayment ? (
+        <div className="min-h-screen bg-[#FAF8F5] text-[#1C1E22] flex items-center justify-center p-6">
+          <div className="rounded-2xl bg-white border border-[#E7E2D8] p-8 text-center max-w-md space-y-2 shadow-sm">
+            <p className="font-display text-2xl font-semibold text-[#141518]">
+              Confirmando tu pago con Stripe…
+            </p>
+            <p className="text-sm text-[#5B5E65]">
+              Un momento, estamos activando tu acceso completo.
+            </p>
+          </div>
+        </div>
       ) : screen === 'new_case' && Boolean(pendingNewCasePayment) ? (
         <QuestionnaireWizard
           onCancel={() => setScreen('cases')}

@@ -11,6 +11,7 @@ import {
   deleteCaseSchedule,
   dispatchViaResend,
   evaluateCaseRemindersNow,
+  getActiveEmailProvider,
   getCaseReminderStatus,
   isResendConfigured,
   isValidEmail,
@@ -368,6 +369,14 @@ export function createApiApp(): express.Express {
       : 19;
   const CASE_PRICE_CENTS = Math.round(CASE_PRICE_EUR * 100);
 
+  function getStripeSecretKey(): string {
+    return (process.env.STRIPE_SECRET_KEY || '').trim().replace(/^["']|["']$/g, '');
+  }
+
+  function isProductionDeployment(): boolean {
+    return process.env.VERCEL_ENV === 'production';
+  }
+
   app.post('/api/payments/create-checkout', requireAuth, async (req: AuthedRequest, res: Response) => {
     try {
       const { caseId, deceasedName, returnOrigin } = req.body as {
@@ -380,8 +389,14 @@ export function createApiApp(): express.Express {
         typeof caseId === 'string' && caseId.trim().length > 0 ? caseId.trim() : 'new_case';
       const isNewCaseFlow = targetCaseId === 'new_case';
 
-      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      const stripeKey = getStripeSecretKey();
       if (!stripeKey) {
+        if (isProductionDeployment()) {
+          res.status(503).json({
+            error: 'La pasarela Stripe aún no está activada en producción (falta STRIPE_SECRET_KEY en Vercel).',
+          });
+          return;
+        }
         res.json({
           mode: 'test_card',
           priceEur: CASE_PRICE_EUR,
@@ -391,10 +406,11 @@ export function createApiApp(): express.Express {
       }
 
       const stripe = new Stripe(stripeKey);
-      const safeOrigin =
+      const rawOrigin =
         returnOrigin && /^https?:\/\//i.test(returnOrigin)
           ? returnOrigin
           : process.env.APP_URL || 'http://localhost:3000';
+      const safeOrigin = rawOrigin.replace(/\/+$/, '');
 
       const successUrl = isNewCaseFlow
         ? `${safeOrigin}/?new_case_paid=1&stripe_session_id={CHECKOUT_SESSION_ID}`
@@ -449,8 +465,14 @@ export function createApiApp(): express.Express {
       const targetCaseId =
         typeof caseId === 'string' && caseId.trim().length > 0 ? caseId.trim() : 'new_case';
 
-      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      const stripeKey = getStripeSecretKey();
       if (!stripeKey) {
+        if (isProductionDeployment()) {
+          res.status(503).json({
+            error: 'La pasarela Stripe no está configurada en producción (falta STRIPE_SECRET_KEY).',
+          });
+          return;
+        }
         if (testCardLast4 === '4242' && targetCaseId) {
           res.json({
             verified: true,
@@ -470,6 +492,10 @@ export function createApiApp(): express.Express {
 
       const stripe = new Stripe(stripeKey);
       const session = await stripe.checkout.sessions.retrieve(sessionId);
+      if (session.metadata?.uid && req.authUser?.uid && session.metadata.uid !== req.authUser.uid) {
+        res.status(403).json({ error: 'Esta sesión de pago pertenece a otra cuenta.' });
+        return;
+      }
       if (session.payment_status === 'paid') {
         res.json({
           verified: true,
@@ -520,13 +546,18 @@ export function createApiApp(): express.Express {
       });
 
       if (result.status === 'sent') {
-        res.json({ dispatched: 'sent', resendId: result.resendId, kind: kind || 'reminder' });
+        res.json({
+          dispatched: 'sent',
+          provider: result.provider,
+          resendId: result.resendId,
+          kind: kind || 'reminder',
+        });
         return;
       }
 
       if (result.status === 'error') {
         res.status(502).json({
-          error: result.errorMessage || 'Resend no pudo enviar el correo en este momento.',
+          error: result.errorMessage || 'No se pudo enviar el correo en este momento.',
           dispatched: 'error',
         });
         return;
@@ -624,6 +655,7 @@ export function createApiApp(): express.Express {
       res.json({
         synced: true,
         resendConfigured: isResendConfigured(),
+        emailProvider: getActiveEmailProvider(),
         schedule: result.schedule,
         autoDispatchedRecord,
       });
@@ -692,6 +724,7 @@ export function createApiApp(): express.Express {
         record: result.record,
         mailtoHref: result.mailtoHref,
         resendConfigured: isResendConfigured(),
+        emailProvider: getActiveEmailProvider(),
       });
     } catch (err) {
       console.error('Run reminder error:', err);

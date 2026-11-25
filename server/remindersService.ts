@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import nodemailer from 'nodemailer';
 
 export interface SyncedProcedureDeadline {
   id: string;
@@ -189,13 +190,62 @@ function formatDaysLabel(daysUntil: number | null): string {
   return past === 1 ? 'Fecha cumplida ayer' : `Fecha cumplida hace ${past} días`;
 }
 
+export type EmailProvider = 'gmail' | 'resend' | 'none';
+
+function stripQuotes(value: string | undefined): string {
+  const trimmed = (value || '').trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function getGmailConfig(): { user: string; pass: string; fromAddress: string } | null {
+  const user = stripQuotes(process.env.GMAIL_USER || process.env.SMTP_USER);
+  const pass = stripQuotes(
+    process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS || process.env.SMTP_PASS
+  ).replace(/\s+/g, '');
+  if (!user || !pass) return null;
+  const fromName = (stripQuotes(process.env.GMAIL_FROM_NAME) || 'Después del adiós').replace(
+    /["\r\n]/g,
+    ''
+  );
+  return {
+    user,
+    pass,
+    fromAddress: `${fromName} <${user}>`,
+  };
+}
+
+function getResendApiKey(): string {
+  return stripQuotes(process.env.RESEND_API_KEY);
+}
+
+export function getActiveEmailProvider(): EmailProvider {
+  const preferred = stripQuotes(process.env.EMAIL_PROVIDER).toLowerCase();
+  const hasGmail = Boolean(getGmailConfig());
+  const hasResend = Boolean(getResendApiKey());
+
+  if (preferred === 'resend' && hasResend) return 'resend';
+  if (hasGmail) return 'gmail';
+  if (hasResend) return 'resend';
+  return 'none';
+}
+
 export function getResendFromAddress(): string {
-  const custom = (process.env.RESEND_FROM_EMAIL || '').trim();
+  if (getActiveEmailProvider() === 'gmail') {
+    const gmail = getGmailConfig();
+    if (gmail) return gmail.fromAddress;
+  }
+  const custom = stripQuotes(process.env.RESEND_FROM_EMAIL);
   return custom || 'Después del adiós <onboarding@resend.dev>';
 }
 
 export function isResendConfigured(): boolean {
-  return Boolean((process.env.RESEND_API_KEY || '').trim());
+  return getActiveEmailProvider() !== 'none';
 }
 
 interface BuiltEmailContent {
@@ -478,12 +528,59 @@ export async function dispatchViaResend(params: {
   tags?: Array<{ name: string; value: string }>;
 }): Promise<{
   status: 'sent' | 'simulated_no_api_key' | 'error';
+  provider?: EmailProvider;
   resendId?: string;
   errorMessage?: string;
 }> {
-  const resendKey = (process.env.RESEND_API_KEY || '').trim();
+  const provider = getActiveEmailProvider();
+
+  if (provider === 'gmail') {
+    const gmail = getGmailConfig();
+    if (!gmail) {
+      return { status: 'simulated_no_api_key', provider: 'none' };
+    }
+    try {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: gmail.user,
+          pass: gmail.pass,
+        },
+      });
+      const info = await transporter.sendMail({
+        from: gmail.fromAddress,
+        to: params.to.trim(),
+        subject: params.subject,
+        html: params.html,
+        text: params.text,
+      });
+      return {
+        status: 'sent',
+        provider: 'gmail',
+        resendId: info.messageId ? String(info.messageId).slice(0, 120) : undefined,
+      };
+    } catch (err) {
+      const rawMsg = err instanceof Error ? err.message : String(err || '');
+      const isAuthErr = /535|invalid login|username and password|eauth|application-specific password/i.test(
+        rawMsg
+      );
+      return {
+        status: 'error',
+        provider: 'gmail',
+        errorMessage: isAuthErr
+          ? 'Gmail rechazó las credenciales: comprueba GMAIL_USER y que GMAIL_APP_PASSWORD sea una Contraseña de aplicación válida (con verificación en 2 pasos activa).'
+          : `Gmail no pudo enviar el correo: ${rawMsg}`.slice(0, 380),
+      };
+    }
+  }
+
+  if (provider === 'none') {
+    return { status: 'simulated_no_api_key', provider: 'none' };
+  }
+
+  const resendKey = getResendApiKey();
   if (!resendKey) {
-    return { status: 'simulated_no_api_key' };
+    return { status: 'simulated_no_api_key', provider: 'none' };
   }
 
   try {
@@ -513,17 +610,20 @@ export async function dispatchViaResend(params: {
       const detail = data?.message || data?.name || `HTTP ${resp.status}`;
       return {
         status: 'error',
+        provider: 'resend',
         errorMessage: `Resend devolvió un error (${resp.status}): ${detail}`.slice(0, 380),
       };
     }
 
     return {
       status: 'sent',
+      provider: 'resend',
       resendId: data.id ? String(data.id).slice(0, 120) : undefined,
     };
   } catch (err) {
     return {
       status: 'error',
+      provider: 'resend',
       errorMessage:
         err instanceof Error
           ? `No se pudo conectar con Resend: ${err.message}`.slice(0, 380)
@@ -859,6 +959,7 @@ export function getCaseReminderStatus(callerUid: string, caseId: string) {
   return {
     ok: true as const,
     resendConfigured: isResendConfigured(),
+    emailProvider: getActiveEmailProvider(),
     fromAddress: getResendFromAddress(),
     schedule,
     upcomingTriggers,

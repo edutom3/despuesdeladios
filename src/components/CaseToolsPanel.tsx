@@ -243,7 +243,7 @@ export const CaseToolsPanel: React.FC<CaseToolsPanelProps> = ({
       } else if (syncRes.autoDispatchedRecord?.status === 'error') {
         setRemError(
           syncRes.autoDispatchedRecord.errorMessage ||
-            'Configuración guardada, pero hubo un error al enviar con Resend.'
+            'Configuración guardada, pero hubo un error al enviar el correo.'
         );
       } else if (remEnabled) {
         setRemStatus(
@@ -290,11 +290,18 @@ export const CaseToolsPanel: React.FC<CaseToolsPanelProps> = ({
         }
         await refreshServerReminderStatus();
 
+        const providerLabel =
+          res.emailProvider === 'gmail'
+            ? 'Gmail'
+            : res.emailProvider === 'resend'
+            ? 'Resend'
+            : 'el servidor';
+
         if (res.record.status === 'sent') {
           setRemStatus(
             mode === 'test'
-              ? `Correo de prueba enviado correctamente a ${cleanEmail} mediante Resend.`
-              : `Resumen de próximos plazos enviado correctamente a ${cleanEmail} mediante Resend.`
+              ? `Correo de prueba enviado correctamente a ${cleanEmail} mediante ${providerLabel}.`
+              : `Resumen de próximos plazos enviado correctamente a ${cleanEmail} mediante ${providerLabel}.`
           );
           setPreviewRecord({
             subject: res.record.subject,
@@ -305,7 +312,7 @@ export const CaseToolsPanel: React.FC<CaseToolsPanelProps> = ({
         } else if (res.record.status === 'error') {
           setRemError(
             res.record.errorMessage ||
-              'Resend no pudo entregar el correo. Revisa la dirección de origen o la clave configurada.'
+              'No se pudo entregar el correo. Revisa las credenciales o la dirección de destino.'
           );
           if (res.mailtoHref) setRemMailto(res.mailtoHref);
           setPreviewRecord({
@@ -316,7 +323,7 @@ export const CaseToolsPanel: React.FC<CaseToolsPanelProps> = ({
           });
         } else {
           setRemStatus(
-            `Correo cálido preparado para ${cleanEmail}. El envío automático directo con Resend se activará en cuanto se configure RESEND_API_KEY en el servidor; mientras tanto, puedes previsualizarlo o abrirlo en tu correo.`
+            `Correo cálido preparado para ${cleanEmail}. El envío automático directo se activará en cuanto configures Gmail (GMAIL_USER y GMAIL_APP_PASSWORD) o Resend en el servidor; mientras tanto, puedes previsualizarlo o abrirlo en tu correo.`
           );
           if (res.mailtoHref) setRemMailto(res.mailtoHref);
           setPreviewRecord({
@@ -690,9 +697,10 @@ export const CaseToolsPanel: React.FC<CaseToolsPanelProps> = ({
 
               {serverStatus && !serverStatus.resendConfigured && (
                 <div className="rounded-xl border border-[#D6C3A5] bg-[#FAF8F5] px-4 py-3 text-xs sm:text-sm text-[#4F3D22] leading-relaxed">
-                  <strong>Envío automático en modo preparación:</strong> la clave de Resend aún no
-                  está activa en el servidor, así que los avisos se preparan con su formato cálido
-                  completo para que puedas previsualizarlos o enviarlos desde tu gestor de correo.
+                  <strong>Envío automático en modo preparación:</strong> aún no hay un servicio de
+                  correo activo en el servidor (Gmail o Resend), así que los avisos se preparan con
+                  su formato cálido completo para que puedas previsualizarlos o enviarlos desde tu
+                  gestor de correo.
                 </div>
               )}
 
@@ -700,7 +708,8 @@ export const CaseToolsPanel: React.FC<CaseToolsPanelProps> = ({
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-xs sm:text-sm text-emerald-950 flex items-start gap-2.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
                   <span>
-                    Envío automático por correo activo a través de Resend (remitente:{' '}
+                    Envío automático por correo activo a través de{' '}
+                    {serverStatus.emailProvider === 'gmail' ? 'Gmail' : 'Resend'} (remitente:{' '}
                     <span className="font-mono-num">{serverStatus.fromAddress}</span>).
                   </span>
                 </div>

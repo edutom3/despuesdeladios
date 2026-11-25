@@ -28,8 +28,11 @@ export interface UpcomingReminderTrigger {
   finalSentAt: string | null;
 }
 
+export type EmailProvider = 'gmail' | 'resend' | 'none';
+
 export interface ReminderStatusResponse {
   resendConfigured: boolean;
+  emailProvider?: EmailProvider;
   fromAddress: string;
   upcomingTriggers: UpcomingReminderTrigger[];
   history: ServerReminderRecord[];
@@ -42,6 +45,7 @@ export async function syncCaseRemindersWithServer(
 ): Promise<{
   synced: boolean;
   resendConfigured: boolean;
+  emailProvider?: EmailProvider;
   autoDispatchedRecord: ServerReminderRecord | null;
 }> {
   const token = await auth.currentUser?.getIdToken();
@@ -88,6 +92,7 @@ export async function syncCaseRemindersWithServer(
   const data = (await resp.json()) as {
     synced?: boolean;
     resendConfigured?: boolean;
+    emailProvider?: EmailProvider;
     autoDispatchedRecord?: ServerReminderRecord | null;
     error?: string;
   };
@@ -98,6 +103,7 @@ export async function syncCaseRemindersWithServer(
   return {
     synced: Boolean(data.synced),
     resendConfigured: Boolean(data.resendConfigured),
+    emailProvider: data.emailProvider,
     autoDispatchedRecord: data.autoDispatchedRecord || null,
   };
 }
@@ -127,6 +133,7 @@ export async function runCaseReminderNow(params: {
   record: ServerReminderRecord | null;
   mailtoHref?: string;
   resendConfigured?: boolean;
+  emailProvider?: EmailProvider;
 }> {
   const token = await auth.currentUser?.getIdToken();
   if (!token) {
@@ -144,6 +151,7 @@ export async function runCaseReminderNow(params: {
     record?: ServerReminderRecord | null;
     mailtoHref?: string;
     resendConfigured?: boolean;
+    emailProvider?: EmailProvider;
     error?: string;
   };
   if (!resp.ok) {
@@ -153,6 +161,7 @@ export async function runCaseReminderNow(params: {
     record: data.record || null,
     mailtoHref: data.mailtoHref,
     resendConfigured: data.resendConfigured,
+    emailProvider: data.emailProvider,
   };
 }
 

@@ -67,11 +67,13 @@ export const CaseFamilyTab: React.FC<CaseFamilyTabProps> = ({
           appOrigin: window.location.origin,
         }),
       });
-      const data = (await resp.json().catch(() => ({}))) as { dispatched?: string };
+      const data = (await resp.json().catch(() => ({}))) as { dispatched?: string; error?: string };
       setInviteEmail('');
       setStatusMsg(
         resp.ok && data.dispatched === 'sent'
           ? `Invitación guardada y correo enviado a ${inv.invitedEmail}.`
+          : data.error
+          ? `Invitación creada, aunque el envío automático falló (${data.error}). Copia el enlace de abajo para enviárselo a ${inv.invitedEmail}.`
           : `Invitación creada. Copia el enlace de abajo para enviárselo por WhatsApp o correo a ${inv.invitedEmail}.`
       );
     } catch (err) {
