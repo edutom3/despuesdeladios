@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, Lock } from 'lucide-react';
+import { CalendarPlus, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import type { BereavementCase, PersonalizedProcedure } from '../types/domain';
 import { formatDateES, parseISODate } from '../utils/caseEngine';
+import { downloadCaseCalendarICS } from '../utils/icsExport';
 
 interface CaseCalendarTabProps {
   bereavementCase: BereavementCase;
@@ -21,9 +22,31 @@ export const CaseCalendarTab: React.FC<CaseCalendarTabProps> = ({
   const initialDate = parseISODate(bereavementCase.deathDate) || new Date();
   const [viewYear, setViewYear] = useState(initialDate.getFullYear());
   const [viewMonth, setViewMonth] = useState(initialDate.getMonth()); // 0..11
+  const [includeCompleted, setIncludeCompleted] = useState(true);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
 
   const visibleProcedures = procedures.filter((p) => !p.isLockedByPlan);
   const lockedCount = procedures.length - visibleProcedures.length;
+  const datedCount = visibleProcedures.filter((p) => Boolean(p.effectiveDeadlineDate)).length;
+  const pendingDatedCount = visibleProcedures.filter(
+    (p) => Boolean(p.effectiveDeadlineDate) && !bereavementCase.taskStates[p.id]?.done
+  ).length;
+  const targetExportCount = includeCompleted ? datedCount : pendingDatedCount;
+
+  const handleExportICS = () => {
+    const res = downloadCaseCalendarICS(bereavementCase, procedures, { includeCompleted });
+    if (res.exportedCount === 0) {
+      setExportNotice(
+        'No hay trámites pendientes con fecha fija para exportar. Marca «Incluir ya hechos» si quieres incluir los completados.'
+      );
+      return;
+    }
+    setExportNotice(
+      `Archivo ${res.filename} descargado con ${res.exportedCount} ${
+        res.exportedCount === 1 ? 'plazo' : 'plazos'
+      }. Ábrelo en tu dispositivo para añadirlo a Apple Calendar o impórtalo en Google Calendar (Configuración → Importar y exportar).`
+    );
+  };
 
   const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-ES', {
     month: 'long',
@@ -82,6 +105,57 @@ export const CaseCalendarTab: React.FC<CaseCalendarTabProps> = ({
             <Lock className="w-3.5 h-3.5 text-[#D6C3A5]" />
             <span>Activar caso</span>
           </button>
+        </div>
+      )}
+
+      {/* ICS Calendar Export Bar */}
+      {datedCount > 0 && (
+        <div className="rounded-2xl bg-white border border-[#E7E2D8] p-4 sm:p-5 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold text-[#141518]">
+                Llevar plazos a Google Calendar o Apple Calendar
+              </h2>
+              <p className="text-xs text-[#666A73] font-mono-num">
+                {targetExportCount} {targetExportCount === 1 ? 'trámite con fecha' : 'trámites con fecha'}{' '}
+                listo para exportar en formato .ics con recordatorios incluidos
+                {unscheduledProcedures.length > 0
+                  ? ` · ${unscheduledProcedures.length} sin fecha fija`
+                  : ''}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 shrink-0">
+              <label className="inline-flex items-center gap-2 text-xs text-[#45484F] cursor-pointer min-h-[40px] px-1">
+                <input
+                  type="checkbox"
+                  checked={includeCompleted}
+                  onChange={(e) => {
+                    setIncludeCompleted(e.target.checked);
+                    setExportNotice(null);
+                  }}
+                  className="w-4 h-4 accent-[#8F754B]"
+                />
+                <span>Incluir ya hechos</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={handleExportICS}
+                disabled={targetExportCount === 0}
+                className="min-h-[44px] px-4 rounded-xl bg-[#141518] text-[#F6F4EF] text-xs sm:text-sm font-semibold hover:bg-[#25272D] transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0 disabled:opacity-50"
+              >
+                <CalendarPlus className="w-4 h-4 text-[#D6C3A5]" />
+                <span>Exportar calendario (.ics)</span>
+              </button>
+            </div>
+          </div>
+
+          {exportNotice && (
+            <p className="rounded-xl border border-[#D6C3A5] bg-[#FAF7F1] px-3.5 py-2.5 text-xs text-[#4F3D22] leading-relaxed">
+              {exportNotice}
+            </p>
+          )}
         </div>
       )}
 

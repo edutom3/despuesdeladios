@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Calendar,
+  CalendarPlus,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -54,6 +55,7 @@ import {
   normalizeDocKey,
   summarizeAnswersES,
 } from '../utils/caseEngine';
+import { downloadCaseCalendarICS } from '../utils/icsExport';
 import { downloadCaseSummaryPDF } from '../utils/pdfExport';
 import { CaseCalendarTab } from './CaseCalendarTab';
 import { CaseDocumentsTab } from './CaseDocumentsTab';
@@ -563,15 +565,31 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
 
                 {/* Upcoming Deadlines */}
                 <div className="rounded-2xl bg-white border border-[#E7E2D8] p-5 space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <h3 className="text-base font-semibold text-[#141518]">Próximas fechas</h3>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('calendario')}
-                      className="text-xs font-medium text-[#7D633A] hover:underline"
-                    >
-                      Abrir calendario
-                    </button>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const res = downloadCaseCalendarICS(bereavementCase, procedures);
+                          showToast(
+                            res.exportedCount > 0
+                              ? `Calendario exportado (${res.exportedCount} plazos en .ics).`
+                              : 'No hay trámites con fecha fija para exportar.'
+                          );
+                        }}
+                        className="text-xs font-medium text-[#7D633A] hover:underline whitespace-nowrap"
+                      >
+                        Exportar .ics
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('calendario')}
+                        className="text-xs font-medium text-[#7D633A] hover:underline whitespace-nowrap"
+                      >
+                        Abrir calendario
+                      </button>
+                    </div>
                   </div>
                   {upcomingDeadlines.length === 0 ? (
                     <p className="text-xs text-[#666A73]">No quedan fechas próximas pendientes.</p>
@@ -632,6 +650,22 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
                     >
                       <Download className="w-4 h-4 text-[#D6C3A5]" />
                       <span>Descargar resumen en PDF</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const res = downloadCaseCalendarICS(bereavementCase, procedures);
+                        showToast(
+                          res.exportedCount > 0
+                            ? `Calendario .ics descargado con ${res.exportedCount} plazos para Google o Apple Calendar.`
+                            : 'No hay trámites con fecha fija para exportar.'
+                        );
+                      }}
+                      className="w-full min-h-[44px] rounded-xl border border-[#D8D0C2] bg-white text-[#1C1E22] text-sm font-medium hover:bg-[#F5F1EA] inline-flex items-center justify-center gap-2"
+                    >
+                      <CalendarPlus className="w-4 h-4 text-[#8F754B]" />
+                      <span>Exportar plazos al calendario (.ics)</span>
                     </button>
 
                     {!bereavementCase.unlocked && (

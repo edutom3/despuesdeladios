@@ -52,7 +52,9 @@ interface RemindersStoreData {
   history: ReminderDispatchRecord[];
 }
 
-const DATA_DIR = path.resolve(process.cwd(), '.data');
+const DATA_DIR = process.env.VERCEL
+  ? path.join('/tmp', 'despues-del-adios-data')
+  : path.resolve(process.cwd(), '.data');
 const STORE_PATH = path.join(DATA_DIR, 'reminders-store.json');
 const EMAIL_REGEX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 const VALID_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
