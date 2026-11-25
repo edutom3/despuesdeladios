@@ -105,8 +105,8 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
               <div className="mt-6 pt-5 border-t border-white/10 text-xs text-[#A8A297] leading-relaxed">
                 Herramienta de organización e información práctica. No ofrece ni sustituye el
-                asesoramiento jurídico, fiscal o notarial. Cuestionario inicial y los 5 trámites más
-                urgentes siempre gratuitos.
+                asesoramiento jurídico, fiscal o notarial. Acceso completo desde 19 € por caso
+                (pago único para toda la familia) o con código de funeraria o aseguradora.
               </div>
             </div>
 
@@ -245,14 +245,15 @@ export const LandingView: React.FC<LandingViewProps> = ({
           <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-12 gap-8 items-center">
             <div className="lg:col-span-7">
               <h2 className="font-display text-3xl font-semibold text-[#F6F4EF]">
-                Empieza gratis, desbloquea cuando lo necesites
+                Un único pago para organizar todo el proceso
               </h2>
               <p className="mt-3 text-sm sm:text-base text-[#C4BEB3] leading-relaxed">
-                El cuestionario inicial y los 5 trámites más urgentes con su ficha completa son
-                gratuitos. Si quieres desbloquear todos los trámites, el calendario completo, la
-                subida de documentos, las invitaciones familiares y los modelos de escritos, puedes
-                hacerlo con un pago único de <strong className="text-[#F6F4EF]">29 €</strong> por
-                caso o con un código de tu funeraria o aseguradora.
+                Al abrir tu caso accedes al cuestionario personalizado, todos los trámites
+                aplicables, el calendario completo con avisos por correo, la subida y escaneo de
+                documentos, las invitaciones familiares, el asistente de orientación y los modelos
+                de escritos con un pago único de{' '}
+                <strong className="text-[#F6F4EF]">19 €</strong> por caso o con un código de tu
+                funeraria o aseguradora.
               </p>
               <div className="mt-6 flex flex-wrap gap-5 text-xs sm:text-sm text-[#D6C3A5]">
                 <span className="inline-flex items-center gap-2">

@@ -86,7 +86,7 @@ export function matchesProcedureRules(
   });
 }
 
-export const FREE_PLAN_LIMIT = 5;
+export const FREE_PLAN_LIMIT = 0;
 
 export function buildPersonalizedProcedures(
   bereavementCase: BereavementCase,
@@ -130,7 +130,7 @@ export function buildPersonalizedProcedures(
     .filter((item): item is PersonalizedProcedure => item !== null)
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
-  // Free plan keeps top 5 most urgent procedures unlocked
+  // Paid-only model: no procedures are unlocked until the case is activated
   if (!unlocked) {
     return matched.map((proc, index) => ({
       ...proc,

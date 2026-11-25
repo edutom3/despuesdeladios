@@ -346,7 +346,14 @@ async function startServer() {
     }
   });
 
-  // --- Step 3: Stripe one-time unlock (29 EUR) ---
+  // --- Step 3: Stripe one-time upfront payment (default 19 EUR, configurable via CASE_PRICE_EUR) ---
+  const parsedPrice = Number(process.env.CASE_PRICE_EUR);
+  const CASE_PRICE_EUR =
+    Number.isFinite(parsedPrice) && parsedPrice >= 1 && parsedPrice <= 500
+      ? Math.round(parsedPrice * 100) / 100
+      : 19;
+  const CASE_PRICE_CENTS = Math.round(CASE_PRICE_EUR * 100);
+
   app.post('/api/payments/create-checkout', requireAuth, async (req: AuthedRequest, res: Response) => {
     try {
       const { caseId, deceasedName, returnOrigin } = req.body as {
@@ -355,17 +362,16 @@ async function startServer() {
         returnOrigin?: string;
       };
 
-      if (!caseId || typeof caseId !== 'string') {
-        res.status(400).json({ error: 'Identificador de caso no válido.' });
-        return;
-      }
+      const targetCaseId =
+        typeof caseId === 'string' && caseId.trim().length > 0 ? caseId.trim() : 'new_case';
+      const isNewCaseFlow = targetCaseId === 'new_case';
 
       const stripeKey = process.env.STRIPE_SECRET_KEY;
       if (!stripeKey) {
         res.json({
           mode: 'test_card',
-          priceEur: 29,
-          caseId,
+          priceEur: CASE_PRICE_EUR,
+          caseId: targetCaseId,
         });
         return;
       }
@@ -376,6 +382,10 @@ async function startServer() {
           ? returnOrigin
           : process.env.APP_URL || 'http://localhost:3000';
 
+      const successUrl = isNewCaseFlow
+        ? `${safeOrigin}/?new_case_paid=1&stripe_session_id={CHECKOUT_SESSION_ID}`
+        : `${safeOrigin}/?unlock_case=${encodeURIComponent(targetCaseId)}&stripe_session_id={CHECKOUT_SESSION_ID}`;
+
       const session = await stripe.checkout.sessions.create({
         mode: 'payment',
         customer_email: req.authUser?.email || undefined,
@@ -383,27 +393,30 @@ async function startServer() {
           {
             price_data: {
               currency: 'eur',
-              unit_amount: 2900,
+              unit_amount: CASE_PRICE_CENTS,
               product_data: {
-                name: 'Desbloqueo completo del caso — Después del adiós',
-                description: `Acceso completo a todos los trámites, calendario, documentos y colaboración familiar para ${deceasedName || 'tu caso'}. Pago único.`,
+                name: 'Acceso completo por caso — Después del adiós',
+                description: isNewCaseFlow
+                  ? 'Acceso completo al cuestionario, trámites personalizados, calendario, documentos, escáner, escritos y colaboración familiar. Pago único.'
+                  : `Acceso completo a todos los trámites, calendario, documentos y colaboración familiar para ${deceasedName || 'tu caso'}. Pago único.`,
               },
             },
             quantity: 1,
           },
         ],
         metadata: {
-          caseId,
+          caseId: targetCaseId,
           uid: req.authUser?.uid || '',
         },
-        success_url: `${safeOrigin}/?unlock_case=${encodeURIComponent(caseId)}&stripe_session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${safeOrigin}/?unlock_cancelled=${encodeURIComponent(caseId)}`,
+        success_url: successUrl,
+        cancel_url: `${safeOrigin}/?unlock_cancelled=${encodeURIComponent(targetCaseId)}`,
       });
 
       res.json({
         mode: 'stripe_redirect',
         url: session.url,
         sessionId: session.id,
+        priceEur: CASE_PRICE_EUR,
       });
     } catch (err) {
       console.error('Stripe checkout error:', err);
@@ -419,12 +432,16 @@ async function startServer() {
         testCardLast4?: string;
       };
 
+      const targetCaseId =
+        typeof caseId === 'string' && caseId.trim().length > 0 ? caseId.trim() : 'new_case';
+
       const stripeKey = process.env.STRIPE_SECRET_KEY;
       if (!stripeKey) {
-        if (testCardLast4 === '4242' && caseId) {
+        if (testCardLast4 === '4242' && targetCaseId) {
           res.json({
             verified: true,
             receiptId: `STRIPE_TEST_${Date.now()}`,
+            flow: targetCaseId === 'new_case' ? 'new_case' : 'unlock_case',
           });
           return;
         }
@@ -443,6 +460,7 @@ async function startServer() {
         res.json({
           verified: true,
           receiptId: session.id.slice(0, 60),
+          flow: session.metadata?.caseId === 'new_case' ? 'new_case' : 'unlock_case',
         });
       } else {
         res.status(402).json({ error: 'El pago aún no figura como completado.' });

@@ -20,6 +20,8 @@ import {
   X,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
+import { CASE_PRICE_LABEL } from '../config/pricing';
+import { ADMIN_EMAIL } from '../firebase';
 import {
   addCaseNote,
   deleteCaseNote,
@@ -99,6 +101,7 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
   const [noteBusy, setNoteBusy] = useState(false);
 
   const isOwner = bereavementCase.ownerId === user.uid;
+  const isAdmin = user.email === ADMIN_EMAIL && user.emailVerified;
   const canCollaborate =
     isOwner || bereavementCase.collaboratorUids.includes(user.uid);
   const userName = user.displayName || user.email?.split('@')[0] || 'Familiar';
@@ -323,6 +326,73 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
       </div>
     );
   };
+
+  if (!bereavementCase.unlocked && !isAdmin) {
+    return (
+      <div className="min-h-screen flex flex-col bg-[#FAF8F5] text-[#1C1E22]">
+        <header className="sticky top-0 z-30 border-b border-[#E7E2D8] bg-[#FAF8F5]/95 backdrop-blur-md">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={onBack}
+              className="min-h-[40px] inline-flex items-center gap-2 text-sm font-medium text-[#45484F] hover:text-[#141518]"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Volver a Mis casos</span>
+            </button>
+            <span className="text-xs font-mono-num text-[#7D633A]">Caso pendiente de activación</span>
+          </div>
+        </header>
+
+        <main className="flex-1 max-w-xl w-full mx-auto px-4 sm:px-6 py-12 flex items-center">
+          <div className="w-full rounded-2xl bg-white border border-[#E7E2D8] p-6 sm:p-8 space-y-5 shadow-sm">
+            <div className="flex items-center gap-2 text-xs font-medium text-[#8F754B]">
+              <Lock className="w-4 h-4" />
+              <span>Acceso de pago requerido</span>
+            </div>
+            <h1 className="font-display text-3xl font-semibold text-[#141518]">
+              Activa el caso de {bereavementCase.deceasedName}
+            </h1>
+            <p className="text-sm text-[#5B5E65] leading-relaxed">
+              Para consultar la lista personalizada de trámites, el calendario con plazos legales,
+              la carpeta de documentos, los modelos de escritos y las invitaciones familiares es
+              necesario activar este caso con un pago único de {CASE_PRICE_LABEL} o con un código
+              de tu funeraria o aseguradora.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowUnlockModal(true)}
+                className="flex-1 min-h-[48px] px-5 rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D]"
+              >
+                Activar ahora ({CASE_PRICE_LABEL} o código)
+              </button>
+              <button
+                type="button"
+                onClick={onBack}
+                className="min-h-[48px] px-5 rounded-xl border border-[#D8D0C2] bg-white text-sm font-medium text-[#45484F] hover:bg-[#F5F1EA]"
+              >
+                Volver
+              </button>
+            </div>
+          </div>
+        </main>
+
+        <LegalDisclaimerFooter variant="light" />
+
+        {showUnlockModal && (
+          <UnlockCaseModal
+            bereavementCase={bereavementCase}
+            onClose={() => setShowUnlockModal(false)}
+            onUnlocked={(msg) => {
+              setShowUnlockModal(false);
+              showToast(msg);
+            }}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF8F5] text-[#1C1E22] pb-20 md:pb-0">
@@ -570,7 +640,7 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
                         onClick={() => setShowUnlockModal(true)}
                         className="w-full min-h-[44px] rounded-xl border border-[#8F754B] bg-[#FAF8F5] text-[#7D633A] text-sm font-semibold hover:bg-[#F1ECE2]"
                       >
-                        Desbloquear caso completo (29 € o código)
+                        Desbloquear caso completo ({CASE_PRICE_LABEL} o código)
                       </button>
                     )}
 

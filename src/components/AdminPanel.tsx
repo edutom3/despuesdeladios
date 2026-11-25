@@ -266,10 +266,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <p className="text-xs text-[#666A73] font-mono-num mt-0.5">
                       Titular: {c.ownerEmail} · {c.ccaa} · Fallecimiento: {formatDateES(c.deathDate)} ·{' '}
                       {c.unlockMethod === 'stripe'
-                        ? 'Pagado 29 € (Stripe)'
+                        ? 'Pagado (Stripe)'
                         : c.unlockMethod === 'partner_code'
                         ? `Código: ${c.unlockCodeUsed}`
-                        : 'Versión gratuita'}
+                        : 'Pendiente de pago'}
                     </p>
                   </div>
                   <button

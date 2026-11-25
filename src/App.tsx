@@ -7,6 +7,7 @@ import {
   signOut,
   type User,
 } from 'firebase/auth';
+import type { PendingCasePayment } from './config/pricing';
 import { ADMIN_EMAIL, auth, googleProvider, testFirestoreConnection } from './firebase';
 import {
   INITIAL_LEGAL_ALERTS,
@@ -48,8 +49,44 @@ import { LandingView } from './components/LandingView';
 import { MyCasesView } from './components/MyCasesView';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { QuestionnaireWizard } from './components/QuestionnaireWizard';
+import { UnlockCaseModal } from './components/UnlockCaseModal';
 
 type AppScreen = 'cases' | 'new_case' | 'edit_case' | 'case_detail' | 'admin';
+
+function paymentStorageKey(uid: string): string {
+  return `dda_paid_pass_${uid}`;
+}
+
+function loadStoredPaidPass(uid: string): PendingCasePayment | null {
+  try {
+    const raw = sessionStorage.getItem(paymentStorageKey(uid));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PendingCasePayment;
+    if (
+      parsed &&
+      (parsed.method === 'stripe' || parsed.method === 'partner_code') &&
+      typeof parsed.codeOrReceipt === 'string' &&
+      parsed.codeOrReceipt.length > 0
+    ) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredPaidPass(uid: string, payment: PendingCasePayment | null): void {
+  try {
+    if (!payment) {
+      sessionStorage.removeItem(paymentStorageKey(uid));
+    } else {
+      sessionStorage.setItem(paymentStorageKey(uid), JSON.stringify(payment));
+    }
+  } catch {
+    // ignore storage restriction
+  }
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -62,6 +99,9 @@ export default function App() {
   const [cases, setCases] = useState<BereavementCase[]>([]);
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
   const [adminSelectedCase, setAdminSelectedCase] = useState<BereavementCase | null>(null);
+
+  const [pendingNewCasePayment, setPendingNewCasePayment] = useState<PendingCasePayment | null>(null);
+  const [payModalTarget, setPayModalTarget] = useState<'new_case' | BereavementCase | null>(null);
 
   const offlineCatalog = loadGlobalCatalogSnapshot();
   const [catalog, setCatalog] = useState<ProcedureCatalogItem[]>(
@@ -82,6 +122,8 @@ export default function App() {
   const [pendingInvite, setPendingInvite] = useState<FamilyInvitation | null>(null);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+
+  const isAdmin = Boolean(user && user.email === ADMIN_EMAIL && user.emailVerified);
 
   // Check Firestore connection and any pending Google redirect login on startup
   useEffect(() => {
@@ -104,6 +146,7 @@ export default function App() {
       setAuthReady(true);
       if (nextUser) {
         setCases(loadCasesSnapshot(nextUser.uid));
+        setPendingNewCasePayment(loadStoredPaidPass(nextUser.uid));
         try {
           await ensureUserProfile(nextUser);
           await bootstrapAdminSeedIfNeeded(nextUser.email);
@@ -113,6 +156,8 @@ export default function App() {
       } else {
         setCases([]);
         setActiveCaseId(null);
+        setPendingNewCasePayment(null);
+        setPayModalTarget(null);
         setScreen('cases');
       }
     });
@@ -173,13 +218,22 @@ export default function App() {
       .catch(() => {});
   }, [user, pendingInviteCode]);
 
-  // Handle Stripe redirect return (?unlock_case=...&stripe_session_id=...)
+  // Handle Stripe redirect return (?new_case_paid=1&stripe_session_id=... OR ?unlock_case=...&stripe_session_id=...)
   useEffect(() => {
     if (!user) return;
     const params = new URLSearchParams(window.location.search);
+    const newCasePaid = params.get('new_case_paid');
     const unlockCaseId = params.get('unlock_case');
     const stripeSessionId = params.get('stripe_session_id');
-    if (!unlockCaseId || !stripeSessionId) return;
+    const unlockCancelled = params.get('unlock_cancelled');
+
+    if (unlockCancelled) {
+      setInviteMessage('El pago no se completó. Puedes intentarlo de nuevo o aplicar un código cuando quieras.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
+    if (!stripeSessionId || (!newCasePaid && !unlockCaseId)) return;
 
     void (async () => {
       try {
@@ -190,13 +244,29 @@ export default function App() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ caseId: unlockCaseId, sessionId: stripeSessionId }),
+          body: JSON.stringify({
+            caseId: newCasePaid ? 'new_case' : unlockCaseId,
+            sessionId: stripeSessionId,
+          }),
         });
         const data = (await resp.json()) as { verified?: boolean; receiptId?: string };
         if (resp.ok && data.verified && data.receiptId) {
-          await unlockCaseWithStripeProof(unlockCaseId, data.receiptId);
-          setActiveCaseId(unlockCaseId);
-          setScreen('case_detail');
+          if (newCasePaid) {
+            const payment: PendingCasePayment = {
+              method: 'stripe',
+              codeOrReceipt: data.receiptId,
+              paidAt: new Date().toISOString(),
+            };
+            saveStoredPaidPass(user.uid, payment);
+            setPendingNewCasePayment(payment);
+            setPayModalTarget(null);
+            setScreen('new_case');
+          } else if (unlockCaseId) {
+            await unlockCaseWithStripeProof(unlockCaseId, data.receiptId);
+            setPayModalTarget(null);
+            setActiveCaseId(unlockCaseId);
+            setScreen('case_detail');
+          }
         }
       } finally {
         window.history.replaceState({}, document.title, window.location.pathname);
@@ -252,7 +322,7 @@ export default function App() {
       } else if (code === 'auth/unauthorized-domain') {
         setAuthNeedsNewTab(isInIframe);
         setAuthError(
-          `El dominio actual (${window.location.hostname}) no está autorizado en Firebase Auth (auth/unauthorized-domain).`
+          `El dominio actual (${window.location.hostname}) aún no está en la lista de dominios autorizados de Firebase Auth (${code}). Si eres quien administra la app, añádelo en Firebase Console → Authentication → Configuración → Dominios autorizados.`
         );
       } else if (code === 'auth/network-request-failed') {
         setAuthError(
@@ -290,6 +360,14 @@ export default function App() {
     }
   };
 
+  const handleRequestNewCase = () => {
+    if (isAdmin || pendingNewCasePayment) {
+      setScreen('new_case');
+    } else {
+      setPayModalTarget('new_case');
+    }
+  };
+
   const handleCreateCase = async (payload: {
     deceasedName: string;
     deathDate: string;
@@ -298,7 +376,17 @@ export default function App() {
     answers: QuestionnaireAnswers;
   }) => {
     if (!user) return;
-    const created = await createBereavementCase(user, payload);
+    if (!isAdmin && !pendingNewCasePayment) {
+      setPayModalTarget('new_case');
+      setScreen('cases');
+      return;
+    }
+
+    const created = await createBereavementCase(user, payload, pendingNewCasePayment);
+    if (created.unlocked) {
+      saveStoredPaidPass(user.uid, null);
+      setPendingNewCasePayment(null);
+    }
     setActiveCaseId(created.id);
     setScreen('case_detail');
   };
@@ -338,18 +426,18 @@ export default function App() {
           authError={authError}
           showNewTabAuthHelp={authNeedsNewTab}
         />
-      ) : screen === 'new_case' ? (
+      ) : screen === 'new_case' && (isAdmin || Boolean(pendingNewCasePayment)) ? (
         <QuestionnaireWizard
           onCancel={() => setScreen('cases')}
           onSave={handleCreateCase}
         />
-      ) : screen === 'edit_case' && activeCase ? (
+      ) : screen === 'edit_case' && activeCase && (activeCase.unlocked || isAdmin) ? (
         <QuestionnaireWizard
           initialCase={activeCase}
           onCancel={() => setScreen('case_detail')}
           onSave={handleUpdateCase}
         />
-      ) : screen === 'admin' && user.email === ADMIN_EMAIL && user.emailVerified ? (
+      ) : screen === 'admin' && isAdmin ? (
         <AdminPanel
           catalog={catalog}
           legalAlerts={legalAlerts}
@@ -382,23 +470,47 @@ export default function App() {
           pendingInvite={pendingInvite}
           inviteBusy={inviteBusy}
           inviteMessage={inviteMessage}
+          pendingNewCasePayment={pendingNewCasePayment}
           onAcceptInvite={() => void handleAcceptInvite()}
           onDismissInvite={() => {
             setPendingInvite(null);
             setPendingInviteCode(null);
             window.history.replaceState({}, document.title, window.location.pathname);
           }}
-          onCreateNewCase={() => setScreen('new_case')}
+          onCreateNewCase={handleRequestNewCase}
           onSelectCase={(id) => {
             setActiveCaseId(id);
             setScreen('case_detail');
           }}
+          onUnlockExistingCase={(c) => setPayModalTarget(c)}
           onDeleteCase={(id) => {
             void deleteBereavementCase(id);
             void deleteCaseReminderSchedule(id);
           }}
           onOpenAdmin={() => setScreen('admin')}
           onSignOut={() => void handleSignOut()}
+        />
+      )}
+
+      {user && payModalTarget && (
+        <UnlockCaseModal
+          bereavementCase={payModalTarget === 'new_case' ? null : payModalTarget}
+          onClose={() => setPayModalTarget(null)}
+          onNewCasePaid={(payment) => {
+            saveStoredPaidPass(user.uid, payment);
+            setPendingNewCasePayment(payment);
+            setPayModalTarget(null);
+            setScreen('new_case');
+          }}
+          onUnlocked={(msg) => {
+            const targetId = payModalTarget !== 'new_case' ? payModalTarget.id : null;
+            setPayModalTarget(null);
+            setInviteMessage(msg);
+            if (targetId) {
+              setActiveCaseId(targetId);
+              setScreen('case_detail');
+            }
+          }}
         />
       )}
     </>

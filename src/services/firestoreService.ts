@@ -142,11 +142,20 @@ export async function createBereavementCase(
     deathPlace: string;
     ccaa: string;
     answers: QuestionnaireAnswers;
-  }
+  },
+  paymentProof?: {
+    method: 'stripe' | 'partner_code';
+    codeOrReceipt: string;
+  } | null
 ): Promise<BereavementCase> {
   const caseId = makeId('case');
   const now = new Date().toISOString();
   const displayName = user.displayName || user.email?.split('@')[0] || 'Titular';
+  const isAdmin = user.email === ADMIN_EMAIL && user.emailVerified;
+
+  if (!paymentProof && !isAdmin) {
+    throw new Error('Es necesario activar el pago o aplicar un código válido antes de crear el caso.');
+  }
 
   const newCaseData: Omit<BereavementCase, 'id'> = {
     ownerId: user.uid,
@@ -157,8 +166,9 @@ export async function createBereavementCase(
     deathPlace: payload.deathPlace.trim(),
     ccaa: payload.ccaa,
     answers: payload.answers,
-    unlocked: false,
-    unlockMethod: 'free',
+    unlocked: isAdmin && !paymentProof ? true : false,
+    unlockMethod: isAdmin && !paymentProof ? 'stripe' : 'free',
+    ...(isAdmin && !paymentProof ? { unlockCodeUsed: 'ADMIN_ACCESS' } : {}),
     memberUids: [user.uid],
     collaboratorUids: [user.uid],
     taskStates: {},
@@ -181,7 +191,30 @@ export async function createBereavementCase(
       addedAt: now,
     };
     await setDoc(doc(db, 'cases', caseId, 'members', user.uid), ownerMember);
-    return { id: caseId, ...newCaseData };
+    const createdCase: BereavementCase = { id: caseId, ...newCaseData };
+
+    if (paymentProof) {
+      if (paymentProof.method === 'stripe') {
+        await unlockCaseWithStripeProof(caseId, paymentProof.codeOrReceipt);
+        return {
+          ...createdCase,
+          unlocked: true,
+          unlockMethod: 'stripe',
+          unlockCodeUsed: paymentProof.codeOrReceipt.slice(0, 64),
+        };
+      }
+      if (paymentProof.method === 'partner_code') {
+        await redeemPartnerCodeOnCase(createdCase, paymentProof.codeOrReceipt);
+        return {
+          ...createdCase,
+          unlocked: true,
+          unlockMethod: 'partner_code',
+          unlockCodeUsed: paymentProof.codeOrReceipt.trim().toUpperCase(),
+        };
+      }
+    }
+
+    return createdCase;
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, `cases/${caseId}`);
   }
@@ -281,6 +314,37 @@ export async function unlockCaseWithStripeProof(
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
   }
+}
+
+export async function validatePartnerCodeAvailable(
+  rawCode: string
+): Promise<{ code: string; partnerName: string }> {
+  const normalized = rawCode.trim().toUpperCase();
+  if (!/^[A-Z0-9_-]{3,64}$/.test(normalized)) {
+    throw new Error('El código introducido no tiene un formato válido.');
+  }
+
+  const codeRef = doc(db, 'partnerCodes', normalized);
+  const codeSnap = await getDoc(codeRef);
+  if (!codeSnap.exists()) {
+    throw new Error('Ese código no existe o no es válido. Revisa las letras y guiones.');
+  }
+
+  const codeData = codeSnap.data() as PartnerCode;
+  if (!codeData.active) {
+    throw new Error('Este código está pausado temporalmente por la entidad emisora.');
+  }
+  if (codeData.usedCount >= codeData.maxUses) {
+    throw new Error('Este código ha alcanzado el límite máximo de usos disponibles.');
+  }
+  if (codeData.expiresAt) {
+    const todayISO = new Date().toISOString().slice(0, 10);
+    if (codeData.expiresAt < todayISO) {
+      throw new Error('Este código ha caducado.');
+    }
+  }
+
+  return { code: normalized, partnerName: codeData.partnerName };
 }
 
 export async function redeemPartnerCodeOnCase(

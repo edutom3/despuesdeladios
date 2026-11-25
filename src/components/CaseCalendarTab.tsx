@@ -71,8 +71,8 @@ export const CaseCalendarTab: React.FC<CaseCalendarTabProps> = ({
       {lockedCount > 0 && (
         <div className="rounded-2xl border border-[#D6C3A5] bg-[#F7F2E8] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <p className="text-xs sm:text-sm text-[#4F3D22]">
-            El calendario muestra los 5 trámites incluidos en la versión gratuita. Quedan{' '}
-            <strong>{lockedCount} trámites más</strong> al desbloquear el caso.
+            El calendario completo de plazos ({lockedCount} trámites) se habilita al activar el
+            caso.
           </p>
           <button
             type="button"
@@ -80,7 +80,7 @@ export const CaseCalendarTab: React.FC<CaseCalendarTabProps> = ({
             className="min-h-[40px] px-4 rounded-xl bg-[#141518] text-[#F6F4EF] text-xs font-semibold inline-flex items-center gap-1.5 shrink-0"
           >
             <Lock className="w-3.5 h-3.5 text-[#D6C3A5]" />
-            <span>Desbloquear todos</span>
+            <span>Activar caso</span>
           </button>
         </div>
       )}

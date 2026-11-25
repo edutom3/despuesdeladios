@@ -1,28 +1,45 @@
 import React, { useState } from 'react';
-import { CheckCircle2, CreditCard, KeyRound, Lock, X } from 'lucide-react';
+import { CheckCircle2, CreditCard, ExternalLink, KeyRound, Lock, X } from 'lucide-react';
+import { CASE_PRICE_LABEL, type PendingCasePayment } from '../config/pricing';
 import { auth } from '../firebase';
-import { redeemPartnerCodeOnCase, unlockCaseWithStripeProof } from '../services/firestoreService';
+import {
+  redeemPartnerCodeOnCase,
+  unlockCaseWithStripeProof,
+  validatePartnerCodeAvailable,
+} from '../services/firestoreService';
 import type { BereavementCase } from '../types/domain';
 
 interface UnlockCaseModalProps {
-  bereavementCase: BereavementCase;
+  bereavementCase?: BereavementCase | null;
   onClose: () => void;
-  onUnlocked: (message: string) => void;
+  onUnlocked?: (message: string) => void;
+  onNewCasePaid?: (payment: PendingCasePayment) => void;
 }
 
 export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
   bereavementCase,
   onClose,
   onUnlocked,
+  onNewCasePaid,
 }) => {
+  const isNewCaseMode = !bereavementCase;
   const [partnerCode, setPartnerCode] = useState('');
   const [codeBusy, setCodeBusy] = useState(false);
   const [stripeBusy, setStripeBusy] = useState(false);
   const [showTestCardForm, setShowTestCardForm] = useState(false);
+  const [stripeExternalUrl, setStripeExternalUrl] = useState<string | null>(null);
   const [cardNumber, setCardNumber] = useState('4242 4242 4242 4242');
   const [cardExpiry, setCardExpiry] = useState('12/29');
   const [cardCvc, setCardCvc] = useState('424');
   const [error, setError] = useState<string | null>(null);
+
+  const isInIframe = (() => {
+    try {
+      return typeof window !== 'undefined' && window.self !== window.top;
+    } catch {
+      return true;
+    }
+  })();
 
   const handleRedeemCode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,8 +50,18 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
     }
     setCodeBusy(true);
     try {
-      const res = await redeemPartnerCodeOnCase(bereavementCase, partnerCode);
-      onUnlocked(`Caso desbloqueado con éxito (${res.partnerName}).`);
+      if (isNewCaseMode) {
+        const res = await validatePartnerCodeAvailable(partnerCode);
+        onNewCasePaid?.({
+          method: 'partner_code',
+          codeOrReceipt: res.code,
+          partnerName: res.partnerName,
+          paidAt: new Date().toISOString(),
+        });
+      } else if (bereavementCase) {
+        const res = await redeemPartnerCodeOnCase(bereavementCase, partnerCode);
+        onUnlocked?.(`Caso activado con éxito (${res.partnerName}).`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo validar ese código.');
     } finally {
@@ -44,9 +71,11 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
 
   const handleStartStripe = async () => {
     setError(null);
+    setStripeExternalUrl(null);
     setStripeBusy(true);
     try {
       const token = await auth.currentUser?.getIdToken();
+      const targetCaseId = bereavementCase?.id || 'new_case';
       const resp = await fetch('/api/payments/create-checkout', {
         method: 'POST',
         headers: {
@@ -54,8 +83,8 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
           Authorization: `Bearer ${token || ''}`,
         },
         body: JSON.stringify({
-          caseId: bereavementCase.id,
-          deceasedName: bereavementCase.deceasedName,
+          caseId: targetCaseId,
+          deceasedName: bereavementCase?.deceasedName || 'Nuevo caso',
           returnOrigin: window.location.origin,
         }),
       });
@@ -68,6 +97,10 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
         throw new Error(data.error || 'No se pudo iniciar el pago.');
       }
       if (data.mode === 'stripe_redirect' && data.url) {
+        if (isInIframe) {
+          setStripeExternalUrl(data.url);
+          return;
+        }
         window.location.assign(data.url);
         return;
       }
@@ -90,6 +123,7 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
     setStripeBusy(true);
     try {
       const token = await auth.currentUser?.getIdToken();
+      const targetCaseId = bereavementCase?.id || 'new_case';
       const resp = await fetch('/api/payments/verify-session', {
         method: 'POST',
         headers: {
@@ -97,7 +131,7 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
           Authorization: `Bearer ${token || ''}`,
         },
         body: JSON.stringify({
-          caseId: bereavementCase.id,
+          caseId: targetCaseId,
           testCardLast4: digits.slice(-4),
         }),
       });
@@ -105,8 +139,16 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
       if (!resp.ok || !data.verified || !data.receiptId) {
         throw new Error(data.error || 'No se pudo confirmar el pago de prueba.');
       }
-      await unlockCaseWithStripeProof(bereavementCase.id, data.receiptId);
-      onUnlocked('Pago completado. Todo el caso está desbloqueado para ti y tu familia.');
+      if (isNewCaseMode) {
+        onNewCasePaid?.({
+          method: 'stripe',
+          codeOrReceipt: data.receiptId,
+          paidAt: new Date().toISOString(),
+        });
+      } else if (bereavementCase) {
+        await unlockCaseWithStripeProof(bereavementCase.id, data.receiptId);
+        onUnlocked?.('Pago completado. Todo el caso está activo para ti y tu familia.');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al validar la tarjeta.');
     } finally {
@@ -120,10 +162,11 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-medium text-[#8F754B] inline-flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5" /> Desbloquear el caso completo
+              <Lock className="w-3.5 h-3.5" />
+              {isNewCaseMode ? 'Activar acceso para empezar' : 'Activar el caso completo'}
             </p>
             <h2 className="font-display text-3xl font-semibold text-[#141518] mt-1">
-              {bereavementCase.deceasedName}
+              {isNewCaseMode ? 'Abrir un caso nuevo' : bereavementCase.deceasedName}
             </h2>
           </div>
           <button
@@ -139,11 +182,11 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
         <ul className="mt-4 space-y-2 text-sm text-[#45484F]">
           <li className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-[#7D633A] shrink-0" />
-            <span>Todos los trámites detallados, fichas completas y notas por comunidad.</span>
+            <span>Cuestionario guiado, todos los trámites detallados y notas por comunidad.</span>
           </li>
           <li className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-[#7D633A] shrink-0" />
-            <span>Calendario completo, lista de documentos, escáner móvil y resumen en PDF.</span>
+            <span>Calendario completo, avisos automáticos, escáner móvil y resumen en PDF.</span>
           </li>
           <li className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-[#7D633A] shrink-0" />
@@ -157,19 +200,34 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
           </div>
         )}
 
-        {/* Option 1: Stripe 29 EUR */}
+        {/* Option 1: Stripe one-time upfront payment */}
         <div className="mt-6 rounded-xl border border-[#E7E2D8] bg-[#FAF8F5] p-4">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-semibold text-[#141518]">Pago único para toda la familia</p>
-              <p className="text-xs text-[#666A73]">Sin suscripciones ni renovaciones.</p>
+              <p className="text-xs text-[#666A73]">Acceso inmediato, sin suscripciones ni cuotas.</p>
             </div>
             <span className="font-display text-3xl font-semibold text-[#141518] font-mono-num">
-              29 €
+              {CASE_PRICE_LABEL}
             </span>
           </div>
 
-          {!showTestCardForm ? (
+          {stripeExternalUrl ? (
+            <div className="mt-4 space-y-2.5 border-t border-[#E7E2D8] pt-4">
+              <p className="text-xs text-[#5B5E65]">
+                La pasarela segura de Stripe se abrirá en una pestaña nueva para completar el pago.
+              </p>
+              <a
+                href={stripeExternalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full min-h-[48px] rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] transition-colors inline-flex items-center justify-center gap-2"
+              >
+                <span>Ir al pago seguro ({CASE_PRICE_LABEL})</span>
+                <ExternalLink className="w-4 h-4 text-[#D6C3A5]" />
+              </a>
+            </div>
+          ) : !showTestCardForm ? (
             <button
               type="button"
               onClick={() => void handleStartStripe()}
@@ -177,7 +235,11 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
               className="mt-4 w-full min-h-[48px] rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-60"
             >
               <CreditCard className="w-4 h-4 text-[#D6C3A5]" />
-              <span>{stripeBusy ? 'Conectando con Stripe...' : 'Pagar 29 € con tarjeta (Stripe)'}</span>
+              <span>
+                {stripeBusy
+                  ? 'Conectando con Stripe...'
+                  : `Pagar ${CASE_PRICE_LABEL} y empezar ahora`}
+              </span>
             </button>
           ) : (
             <form onSubmit={handleConfirmTestCard} className="mt-4 space-y-3 border-t border-[#E7E2D8] pt-4">
@@ -212,7 +274,7 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
                 disabled={stripeBusy}
                 className="w-full min-h-[44px] rounded-xl bg-[#8F754B] text-white text-sm font-semibold hover:bg-[#7A633E]"
               >
-                {stripeBusy ? 'Confirmando pago...' : 'Confirmar pago de prueba (29 €)'}
+                {stripeBusy ? 'Confirmando pago...' : `Confirmar pago de prueba (${CASE_PRICE_LABEL})`}
               </button>
             </form>
           )}
@@ -231,7 +293,7 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
                 type="text"
                 value={partnerCode}
                 onChange={(e) => setPartnerCode(e.target.value)}
-                placeholder="Ej.: SANJOSE-DEMO"
+                placeholder="Introduce tu código"
                 className="w-full min-h-[44px] rounded-xl border border-[#D8D0C2] bg-[#FAF8F5] pl-10 pr-3 text-sm uppercase font-mono-num focus:outline-none focus:border-[#8F754B]"
               />
             </div>
@@ -244,8 +306,8 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
             </button>
           </div>
           <p className="text-xs text-[#6E6A63]">
-            Códigos de prueba disponibles: <span className="font-mono-num">SANJOSE-DEMO</span> o{' '}
-            <span className="font-mono-num">SEGUROS-NORTE-DEMO</span>.
+            Si tu funeraria o seguro cubre la gestión, introduce su código para activar el caso sin
+            coste adicional.
           </p>
         </form>
       </div>

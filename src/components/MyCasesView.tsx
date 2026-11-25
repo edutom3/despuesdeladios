@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { ArrowRight, HelpCircle, LogOut, Plus, Shield, Trash2, Users } from 'lucide-react';
+import { ArrowRight, CheckCircle2, HelpCircle, Lock, LogOut, Plus, Shield, Trash2, Users } from 'lucide-react';
 import type { User } from 'firebase/auth';
+import { CASE_PRICE_LABEL, type PendingCasePayment } from '../config/pricing';
 import { ADMIN_EMAIL } from '../firebase';
 import type { BereavementCase, FamilyInvitation, ProcedureCatalogItem } from '../types/domain';
 import { buildPersonalizedProcedures, daysSinceDate, formatDateES } from '../utils/caseEngine';
@@ -14,10 +15,12 @@ interface MyCasesViewProps {
   pendingInvite: FamilyInvitation | null;
   inviteBusy: boolean;
   inviteMessage: string | null;
+  pendingNewCasePayment: PendingCasePayment | null;
   onAcceptInvite: () => void;
   onDismissInvite: () => void;
   onCreateNewCase: () => void;
   onSelectCase: (caseId: string) => void;
+  onUnlockExistingCase: (bereavementCase: BereavementCase) => void;
   onDeleteCase: (caseId: string) => void;
   onOpenAdmin: () => void;
   onSignOut: () => void;
@@ -30,16 +33,19 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
   pendingInvite,
   inviteBusy,
   inviteMessage,
+  pendingNewCasePayment,
   onAcceptInvite,
   onDismissInvite,
   onCreateNewCase,
   onSelectCase,
+  onUnlockExistingCase,
   onDeleteCase,
   onOpenAdmin,
   onSignOut,
 }) => {
   const [faqOpen, setFaqOpen] = useState(false);
   const isAdmin = user.email === ADMIN_EMAIL && user.emailVerified;
+  const hasAnyUnlockedAccess = isAdmin || cases.some((c) => c.unlocked);
   const ownCases = cases.filter((c) => c.ownerId === user.uid);
   const sharedCases = cases.filter((c) => c.ownerId !== user.uid);
 
@@ -47,6 +53,7 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
     const procs = buildPersonalizedProcedures(c, catalog);
     const doneCount = procs.filter((p) => c.taskStates[p.id]?.done).length;
     const days = daysSinceDate(c.deathDate);
+    const canEnter = c.unlocked || isAdmin;
 
     return (
       <div
@@ -83,7 +90,7 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
               {doneCount} de {procs.length} trámites hechos
             </span>
             <span aria-hidden="true">·</span>
-            <span>{c.unlocked ? 'Caso desbloqueado' : 'Versión gratuita (5 urgentes)'}</span>
+            <span>{c.unlocked ? 'Caso activo' : `Pendiente de pago (${CASE_PRICE_LABEL})`}</span>
             {isShared && (
               <>
                 <span aria-hidden="true">·</span>
@@ -97,11 +104,16 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
 
         <button
           type="button"
-          onClick={() => onSelectCase(c.id)}
-          className="w-full min-h-[44px] rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-medium hover:bg-[#25272D] transition-colors inline-flex items-center justify-center gap-2"
+          onClick={() => (canEnter ? onSelectCase(c.id) : onUnlockExistingCase(c))}
+          className={`w-full min-h-[44px] rounded-xl text-sm font-medium transition-colors inline-flex items-center justify-center gap-2 ${
+            canEnter
+              ? 'bg-[#141518] text-[#F6F4EF] hover:bg-[#25272D]'
+              : 'bg-[#8F754B] text-white hover:bg-[#7A633E]'
+          }`}
         >
-          <span>Abrir caso</span>
-          <ArrowRight className="w-4 h-4" />
+          {!canEnter && <Lock className="w-4 h-4" />}
+          <span>{canEnter ? 'Abrir caso' : `Activar y abrir (${CASE_PRICE_LABEL})`}</span>
+          {canEnter && <ArrowRight className="w-4 h-4" />}
         </button>
       </div>
     );
@@ -175,6 +187,33 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
           </div>
         )}
 
+        {pendingNewCasePayment && (
+          <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-emerald-950">
+                  Acceso activado listo para tu nuevo caso
+                </p>
+                <p className="text-xs sm:text-sm text-emerald-900 mt-0.5">
+                  {pendingNewCasePayment.method === 'partner_code'
+                    ? `Código aplicado (${pendingNewCasePayment.partnerName || pendingNewCasePayment.codeOrReceipt}). `
+                    : 'Pago confirmado correctamente. '}
+                  Completa ahora el cuestionario de 4 pasos para generar tu lista de trámites y
+                  calendario.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onCreateNewCase}
+              className="min-h-[44px] px-5 rounded-xl bg-emerald-900 text-white text-sm font-semibold hover:bg-emerald-950 shrink-0"
+            >
+              Completar cuestionario
+            </button>
+          </div>
+        )}
+
         {inviteMessage && (
           <div className="rounded-xl border border-[#D6C3A5] bg-[#F7F2E8] px-4 py-3 text-sm text-[#4F3D22]">
             {inviteMessage}
@@ -192,14 +231,16 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => setFaqOpen(true)}
-              className="min-h-[48px] px-4 py-2.5 rounded-xl border border-[#D8D0C2] bg-white text-[#1C1E22] text-sm font-medium hover:bg-[#F5F1EA] transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
-            >
-              <HelpCircle className="w-4 h-4 text-[#8F754B]" />
-              <span>Dudas frecuentes</span>
-            </button>
+            {hasAnyUnlockedAccess && (
+              <button
+                type="button"
+                onClick={() => setFaqOpen(true)}
+                className="min-h-[48px] px-4 py-2.5 rounded-xl border border-[#D8D0C2] bg-white text-[#1C1E22] text-sm font-medium hover:bg-[#F5F1EA] transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
+              >
+                <HelpCircle className="w-4 h-4 text-[#8F754B]" />
+                <span>Dudas frecuentes</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -207,28 +248,59 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
               className="min-h-[48px] px-5 py-2.5 rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
             >
               <Plus className="w-4 h-4 text-[#D6C3A5]" />
-              <span>Abrir un caso nuevo</span>
+              <span>
+                {isAdmin || pendingNewCasePayment
+                  ? 'Abrir un caso nuevo'
+                  : `Abrir un caso (${CASE_PRICE_LABEL})`}
+              </span>
             </button>
           </div>
         </div>
 
         {ownCases.length === 0 && sharedCases.length === 0 ? (
           <div className="rounded-2xl border border-[#E7E2D8] bg-white p-8 sm:p-12 text-center max-w-2xl mx-auto">
-            <h2 className="font-display text-2xl sm:text-3xl font-semibold text-[#141518]">
-              Aún no tienes ningún caso abierto
-            </h2>
-            <p className="mt-3 text-sm sm:text-base text-[#5B5E65] leading-relaxed">
-              Contesta 4 pasos breves y guardaremos de forma privada tu lista ordenada de trámites,
-              el calendario personalizado y los documentos necesarios.
-            </p>
-            <button
-              type="button"
-              onClick={onCreateNewCase}
-              className="mt-6 min-h-[48px] px-6 py-3 rounded-xl bg-[#8F754B] text-white text-sm font-semibold hover:bg-[#7A633E] transition-colors inline-flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Empezar cuestionario inicial</span>
-            </button>
+            {isAdmin || pendingNewCasePayment ? (
+              <>
+                <h2 className="font-display text-2xl sm:text-3xl font-semibold text-[#141518]">
+                  Aún no tienes ningún caso guardado
+                </h2>
+                <p className="mt-3 text-sm sm:text-base text-[#5B5E65] leading-relaxed">
+                  Contesta 4 pasos breves y guardaremos de forma privada tu lista ordenada de
+                  trámites, el calendario personalizado y los documentos necesarios.
+                </p>
+                <button
+                  type="button"
+                  onClick={onCreateNewCase}
+                  className="mt-6 min-h-[48px] px-6 py-3 rounded-xl bg-[#8F754B] text-white text-sm font-semibold hover:bg-[#7A633E] transition-colors inline-flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Empezar cuestionario inicial</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="w-11 h-11 rounded-2xl bg-[#F5F0E6] border border-[#D8D0C2] flex items-center justify-center mx-auto mb-4">
+                  <Lock className="w-5 h-5 text-[#8F754B]" />
+                </div>
+                <h2 className="font-display text-2xl sm:text-3xl font-semibold text-[#141518]">
+                  Activa tu acceso para empezar
+                </h2>
+                <p className="mt-3 text-sm sm:text-base text-[#5B5E65] leading-relaxed">
+                  Con un pago único de <strong>{CASE_PRICE_LABEL}</strong> por caso (o con un código
+                  de tu funeraria o aseguradora) tendrás acceso completo desde el primer paso:
+                  cuestionario personalizado, todos los trámites, calendario de plazos, avisos por
+                  correo, documentos y colaboración con tu familia.
+                </p>
+                <button
+                  type="button"
+                  onClick={onCreateNewCase}
+                  className="mt-6 min-h-[48px] px-6 py-3 rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] transition-colors inline-flex items-center gap-2"
+                >
+                  <Lock className="w-4 h-4 text-[#D6C3A5]" />
+                  <span>Activar acceso ({CASE_PRICE_LABEL} o código)</span>
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-10">
@@ -254,11 +326,13 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
 
       <LegalDisclaimerFooter variant="light" />
 
-      <LegalFaqDrawer
-        open={faqOpen}
-        onClose={() => setFaqOpen(false)}
-        cases={cases}
-      />
+      {hasAnyUnlockedAccess && (
+        <LegalFaqDrawer
+          open={faqOpen}
+          onClose={() => setFaqOpen(false)}
+          cases={cases}
+        />
+      )}
     </div>
   );
 };

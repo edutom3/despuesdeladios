@@ -84,7 +84,7 @@ export function downloadCaseSummaryPDF(
         ? `${formatDateES(proc.effectiveDeadlineDate)} (${proc.deadlineKind === 'legal' ? 'Plazo legal' : 'Fecha orientativa'})`
         : 'Sin fecha fija';
 
-      const lockNote = proc.isLockedByPlan ? ' (Vista previa en plan gratuito)' : '';
+      const lockNote = proc.isLockedByPlan ? ' (Pendiente de activación)' : '';
       addWrapped(`${statusText} ${proc.title}${lockNote}`, 10.5, true, [28, 30, 34]);
       addWrapped(`Plazo: ${deadlineLabel}${assigneeText}`, 9.2, false, [88, 92, 100]);
       if (!proc.isLockedByPlan) {
