@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, CheckCircle2, CreditCard, HelpCircle, KeyRound, Lock, LogOut, Plus, Shield, Trash2, Users } from 'lucide-react';
+import { ArrowRight, CheckCircle2, CreditCard, HelpCircle, Lock, LogOut, Plus, Shield, Trash2, Users } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { CASE_PRICE_LABEL, type PendingCasePayment } from '../config/pricing';
 import { ADMIN_EMAIL } from '../firebase';
@@ -196,11 +196,8 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
                   Acceso activado listo para tu nuevo caso
                 </p>
                 <p className="text-xs sm:text-sm text-emerald-900 mt-0.5">
-                  {pendingNewCasePayment.method === 'partner_code'
-                    ? `Código aplicado (${pendingNewCasePayment.partnerName || pendingNewCasePayment.codeOrReceipt}). `
-                    : 'Pago confirmado correctamente. '}
-                  Completa ahora el cuestionario de 4 pasos para generar tu lista de trámites y
-                  calendario.
+                  Pago confirmado correctamente. Completa ahora el cuestionario de 4 pasos para
+                  generar tu lista de trámites y calendario.
                 </p>
               </div>
             </div>
@@ -266,8 +263,8 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
             <div className="space-y-1">
               <p className="text-xs font-semibold text-[#7D633A]">Acceso completo bajo pago único</p>
               <p className="text-sm text-[#1C1E22] leading-relaxed">
-                Sin realizar el pago único de <strong>{CASE_PRICE_LABEL}</strong> (o aplicar un código
-                de funeraria) no es posible abrir ni gestionar los trámites del caso.
+                Sin realizar el pago único de <strong>{CASE_PRICE_LABEL}</strong> no es posible abrir
+                ni gestionar los trámites del caso.
               </p>
             </div>
             <button
@@ -316,10 +313,9 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
                 <p className="mt-3 text-sm sm:text-base text-[#5B5E65] leading-relaxed">
                   Para poder crear tu caso y acceder al cuestionario, trámites, calendario, avisos
                   por correo, notas rápidas, documentos y familia es necesario realizar un pago único
-                  de <strong>{CASE_PRICE_LABEL}</strong> (o introducir un código de tu funeraria o
-                  aseguradora).
+                  de <strong>{CASE_PRICE_LABEL}</strong>.
                 </p>
-                <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+                <div className="mt-6 flex justify-center">
                   <button
                     type="button"
                     onClick={onCreateNewCase}
@@ -327,14 +323,6 @@ export const MyCasesView: React.FC<MyCasesViewProps> = ({
                   >
                     <CreditCard className="w-4 h-4 text-[#D6C3A5] shrink-0" />
                     <span>Pagar {CASE_PRICE_LABEL} y empezar</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onCreateNewCase}
-                    className="w-full sm:w-auto min-h-[48px] px-5 py-3 rounded-xl border border-[#D8D0C2] bg-white text-[#1C1E22] text-sm font-medium hover:bg-[#F5F1EA] transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap"
-                  >
-                    <KeyRound className="w-4 h-4 text-[#8F754B] shrink-0" />
-                    <span>Tengo un código</span>
                   </button>
                 </div>
               </>

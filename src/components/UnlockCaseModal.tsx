@@ -1,12 +1,8 @@
 import React, { useState } from 'react';
-import { CheckCircle2, CreditCard, ExternalLink, KeyRound, Lock, X } from 'lucide-react';
+import { CheckCircle2, CreditCard, ExternalLink, Lock, X } from 'lucide-react';
 import { CASE_PRICE_LABEL, type PendingCasePayment } from '../config/pricing';
 import { auth } from '../firebase';
-import {
-  redeemPartnerCodeOnCase,
-  unlockCaseWithStripeProof,
-  validatePartnerCodeAvailable,
-} from '../services/firestoreService';
+import { unlockCaseWithStripeProof } from '../services/firestoreService';
 import type { BereavementCase } from '../types/domain';
 
 interface UnlockCaseModalProps {
@@ -16,6 +12,16 @@ interface UnlockCaseModalProps {
   onNewCasePaid?: (payment: PendingCasePayment) => void;
 }
 
+async function readApiJson<T>(resp: Response): Promise<{ ok: boolean; data: T | null; rawText: string }> {
+  const rawText = await resp.text();
+  try {
+    const data = JSON.parse(rawText) as T;
+    return { ok: resp.ok, data, rawText };
+  } catch {
+    return { ok: resp.ok, data: null, rawText };
+  }
+}
+
 export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
   bereavementCase,
   onClose,
@@ -23,8 +29,6 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
   onNewCasePaid,
 }) => {
   const isNewCaseMode = !bereavementCase;
-  const [partnerCode, setPartnerCode] = useState('');
-  const [codeBusy, setCodeBusy] = useState(false);
   const [stripeBusy, setStripeBusy] = useState(false);
   const [showTestCardForm, setShowTestCardForm] = useState(false);
   const [stripeExternalUrl, setStripeExternalUrl] = useState<string | null>(null);
@@ -41,46 +45,21 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
     }
   })();
 
-  const handleRedeemCode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    if (!partnerCode.trim()) {
-      setError('Introduce el código que te facilitó tu funeraria o aseguradora.');
-      return;
-    }
-    setCodeBusy(true);
-    try {
-      if (isNewCaseMode) {
-        const res = await validatePartnerCodeAvailable(partnerCode);
-        onNewCasePaid?.({
-          method: 'partner_code',
-          codeOrReceipt: res.code,
-          partnerName: res.partnerName,
-          paidAt: new Date().toISOString(),
-        });
-      } else if (bereavementCase) {
-        const res = await redeemPartnerCodeOnCase(bereavementCase, partnerCode);
-        onUnlocked?.(`Caso activado con éxito (${res.partnerName}).`);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo validar ese código.');
-    } finally {
-      setCodeBusy(false);
-    }
-  };
-
   const handleStartStripe = async () => {
     setError(null);
     setStripeExternalUrl(null);
     setStripeBusy(true);
     try {
       const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        throw new Error('Tu sesión no está activa. Vuelve a iniciar sesión con Google.');
+      }
       const targetCaseId = bereavementCase?.id || 'new_case';
       const resp = await fetch('/api/payments/create-checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token || ''}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           caseId: targetCaseId,
@@ -88,20 +67,34 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
           returnOrigin: window.location.origin,
         }),
       });
-      const data = (await resp.json()) as {
+
+      const parsed = await readApiJson<{
         mode?: 'stripe_redirect' | 'test_card';
         url?: string;
         error?: string;
-      };
-      if (!resp.ok) {
-        throw new Error(data.error || 'No se pudo iniciar el pago.');
+      }>(resp);
+
+      if (!parsed.data) {
+        if (resp.status === 404) {
+          throw new Error(
+            'El servidor de pagos (/api/payments/create-checkout) no respondió en este despliegue. Redespliega la aplicación tras guardar la configuración de API.'
+          );
+        }
+        throw new Error(
+          `El servidor de pagos devolvió una respuesta inesperada (${resp.status}). Inténtalo de nuevo en unos segundos.`
+        );
       }
-      if (data.mode === 'stripe_redirect' && data.url) {
+
+      if (!parsed.ok) {
+        throw new Error(parsed.data.error || 'No se pudo iniciar el pago.');
+      }
+
+      if (parsed.data.mode === 'stripe_redirect' && parsed.data.url) {
         if (isInIframe) {
-          setStripeExternalUrl(data.url);
+          setStripeExternalUrl(parsed.data.url);
           return;
         }
-        window.location.assign(data.url);
+        window.location.assign(parsed.data.url);
         return;
       }
       setShowTestCardForm(true);
@@ -123,30 +116,45 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
     setStripeBusy(true);
     try {
       const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        throw new Error('Tu sesión no está activa. Vuelve a iniciar sesión con Google.');
+      }
       const targetCaseId = bereavementCase?.id || 'new_case';
       const resp = await fetch('/api/payments/verify-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token || ''}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           caseId: targetCaseId,
           testCardLast4: digits.slice(-4),
         }),
       });
-      const data = (await resp.json()) as { verified?: boolean; receiptId?: string; error?: string };
-      if (!resp.ok || !data.verified || !data.receiptId) {
-        throw new Error(data.error || 'No se pudo confirmar el pago de prueba.');
+
+      const parsed = await readApiJson<{
+        verified?: boolean;
+        receiptId?: string;
+        error?: string;
+      }>(resp);
+
+      if (!parsed.data) {
+        throw new Error(
+          `No se pudo verificar el pago en el servidor (${resp.status}). Comprueba el despliegue del servidor.`
+        );
+      }
+
+      if (!parsed.ok || !parsed.data.verified || !parsed.data.receiptId) {
+        throw new Error(parsed.data.error || 'No se pudo confirmar el pago.');
       }
       if (isNewCaseMode) {
         onNewCasePaid?.({
           method: 'stripe',
-          codeOrReceipt: data.receiptId,
+          codeOrReceipt: parsed.data.receiptId,
           paidAt: new Date().toISOString(),
         });
       } else if (bereavementCase) {
-        await unlockCaseWithStripeProof(bereavementCase.id, data.receiptId);
+        await unlockCaseWithStripeProof(bereavementCase.id, parsed.data.receiptId);
         onUnlocked?.('Pago completado. Todo el caso está activo para ti y tu familia.');
       }
     } catch (err) {
@@ -163,7 +171,7 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
           <div>
             <p className="text-xs font-medium text-[#8F754B] inline-flex items-center gap-1.5">
               <Lock className="w-3.5 h-3.5" />
-              {isNewCaseMode ? 'Activar acceso para empezar' : 'Activar el caso completo'}
+              {isNewCaseMode ? 'Pago necesario para empezar' : 'Pago para acceder al caso completo'}
             </p>
             <h2 className="font-display text-3xl font-semibold text-[#141518] mt-1">
               {isNewCaseMode ? 'Abrir un caso nuevo' : bereavementCase.deceasedName}
@@ -200,7 +208,7 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
           </div>
         )}
 
-        {/* Option 1: Stripe one-time upfront payment */}
+        {/* Stripe one-time upfront payment */}
         <div className="mt-6 rounded-xl border border-[#E7E2D8] bg-[#FAF8F5] p-4">
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -279,37 +287,6 @@ export const UnlockCaseModal: React.FC<UnlockCaseModalProps> = ({
             </form>
           )}
         </div>
-
-        {/* Option 2: Partner Code */}
-        <form onSubmit={handleRedeemCode} className="mt-5 pt-5 border-t border-[#E7E2D8] space-y-3">
-          <label htmlFor="partnerCodeInput" className="block text-sm font-medium text-[#1C1E22]">
-            ¿Tienes un código de funeraria o aseguradora?
-          </label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <KeyRound className="w-4 h-4 text-[#7A7D85] absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                id="partnerCodeInput"
-                type="text"
-                value={partnerCode}
-                onChange={(e) => setPartnerCode(e.target.value)}
-                placeholder="Introduce tu código"
-                className="w-full min-h-[44px] rounded-xl border border-[#D8D0C2] bg-[#FAF8F5] pl-10 pr-3 text-sm uppercase font-mono-num focus:outline-none focus:border-[#8F754B]"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={codeBusy}
-              className="min-h-[44px] px-4 rounded-xl border border-[#141518] bg-white text-sm font-semibold text-[#141518] hover:bg-[#F5F1EA] shrink-0"
-            >
-              {codeBusy ? 'Validando...' : 'Aplicar código'}
-            </button>
-          </div>
-          <p className="text-xs text-[#6E6A63]">
-            Si tu funeraria o seguro cubre la gestión, introduce su código para activar el caso sin
-            coste adicional.
-          </p>
-        </form>
       </div>
     </div>
   );

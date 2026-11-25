@@ -64,7 +64,7 @@ function loadStoredPaidPass(uid: string): PendingCasePayment | null {
     const parsed = JSON.parse(raw) as PendingCasePayment;
     if (
       parsed &&
-      (parsed.method === 'stripe' || parsed.method === 'partner_code') &&
+      parsed.method === 'stripe' &&
       typeof parsed.codeOrReceipt === 'string' &&
       parsed.codeOrReceipt.length > 0
     ) {
@@ -228,7 +228,7 @@ export default function App() {
     const unlockCancelled = params.get('unlock_cancelled');
 
     if (unlockCancelled) {
-      setInviteMessage('El pago no se completó. Puedes intentarlo de nuevo o aplicar un código cuando quieras.');
+      setInviteMessage('El pago no se completó. Puedes intentarlo de nuevo cuando quieras.');
       window.history.replaceState({}, document.title, window.location.pathname);
       return;
     }
@@ -249,8 +249,14 @@ export default function App() {
             sessionId: stripeSessionId,
           }),
         });
-        const data = (await resp.json()) as { verified?: boolean; receiptId?: string; error?: string };
-        if (resp.ok && data.verified && data.receiptId) {
+        const rawText = await resp.text();
+        let data: { verified?: boolean; receiptId?: string; error?: string } | null = null;
+        try {
+          data = JSON.parse(rawText) as { verified?: boolean; receiptId?: string; error?: string };
+        } catch {
+          data = null;
+        }
+        if (resp.ok && data?.verified && data.receiptId) {
           if (newCasePaid) {
             const payment: PendingCasePayment = {
               method: 'stripe',
@@ -268,7 +274,7 @@ export default function App() {
             setScreen('case_detail');
           }
         } else {
-          setInviteMessage(data.error || 'No se pudo verificar el pago con Stripe. Inténtalo de nuevo.');
+          setInviteMessage(data?.error || 'No se pudo verificar el pago con Stripe. Inténtalo de nuevo.');
         }
       } catch (err) {
         setInviteMessage(

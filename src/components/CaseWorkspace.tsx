@@ -430,9 +430,9 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
               Paga para acceder al caso de {bereavementCase.deceasedName}
             </h1>
             <p className="text-sm text-[#5B5E65] leading-relaxed">
-              Sin completar el pago único de <strong>{CASE_PRICE_LABEL}</strong> (o introducir un
-              código de funeraria o aseguradora) no es posible acceder a los trámites, calendario,
-              notas, documentos, invitaciones ni herramientas de este caso.
+              Sin completar el pago único de <strong>{CASE_PRICE_LABEL}</strong> no es posible
+              acceder a los trámites, calendario, notas, documentos, invitaciones ni herramientas de
+              este caso.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <button
@@ -441,7 +441,7 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
                 className="flex-1 min-h-[48px] px-5 rounded-xl bg-[#141518] text-[#F6F4EF] text-sm font-semibold hover:bg-[#25272D] inline-flex items-center justify-center gap-2 whitespace-nowrap"
               >
                 <CreditCard className="w-4 h-4 text-[#D6C3A5] shrink-0" />
-                <span>Pagar {CASE_PRICE_LABEL} o usar código</span>
+                <span>Pagar {CASE_PRICE_LABEL} con tarjeta</span>
               </button>
               <button
                 type="button"
@@ -748,7 +748,7 @@ export const CaseWorkspace: React.FC<CaseWorkspaceProps> = ({
                         onClick={() => setShowUnlockModal(true)}
                         className="w-full min-h-[44px] rounded-xl border border-[#8F754B] bg-[#FAF8F5] text-[#7D633A] text-sm font-semibold hover:bg-[#F1ECE2]"
                       >
-                        Desbloquear caso completo ({CASE_PRICE_LABEL} o código)
+                        Pagar {CASE_PRICE_LABEL} para desbloquear
                       </button>
                     )}
 

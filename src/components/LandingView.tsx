@@ -111,9 +111,8 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
               <div className="mt-6 pt-5 border-t border-white/10 text-xs text-[#A8A297] leading-relaxed">
                 Acceso completo tras pago único de <strong className="text-[#F6F4EF]">{CASE_PRICE_LABEL}</strong>{' '}
-                por caso (o con código de funeraria o aseguradora). Herramienta de organización e
-                información práctica; no ofrece ni sustituye el asesoramiento jurídico, fiscal o
-                notarial.
+                por caso. Herramienta de organización e información práctica; no ofrece ni sustituye
+                el asesoramiento jurídico, fiscal o notarial.
               </div>
             </div>
 
@@ -259,8 +258,8 @@ export const LandingView: React.FC<LandingViewProps> = ({
                 aplicables, el calendario completo con avisos por correo, la subida y escaneo de
                 documentos, las invitaciones familiares, el asistente de orientación y los modelos
                 de escritos con un pago único de{' '}
-                <strong className="text-[#F6F4EF]">19 €</strong> por caso o con un código de tu
-                funeraria o aseguradora.
+                <strong className="text-[#F6F4EF]">{CASE_PRICE_LABEL}</strong> por caso para toda la
+                familia.
               </p>
               <div className="mt-6 flex flex-wrap gap-5 text-xs sm:text-sm text-[#D6C3A5]">
                 <span className="inline-flex items-center gap-2">

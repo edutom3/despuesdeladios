@@ -92,8 +92,8 @@ export const CaseFamilyTab: React.FC<CaseFamilyTabProps> = ({
               Desbloquea el caso para invitar a tu familia
             </p>
             <p className="text-xs text-[#6B532E] mt-1">
-              Con un único pago de 19 € o un código de funeraria/aseguradora, toda la familia puede
-              repartirse trámites, notas y documentos.
+              Con un único pago de 19 €, toda la familia puede repartirse trámites, notas y
+              documentos.
             </p>
           </div>
           <button

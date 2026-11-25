@@ -713,5 +713,9 @@ export function createApiApp(): express.Express {
     res.json({ deleted: true });
   });
 
+  app.use('/api', (_req: Request, res: Response) => {
+    res.status(404).json({ error: 'Ruta de API no encontrada.' });
+  });
+
   return app;
 }
