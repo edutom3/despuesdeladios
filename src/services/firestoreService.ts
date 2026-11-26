@@ -962,3 +962,99 @@ export async function saveProfessionalEntry(entry: ProfessionalEntry): Promise<v
     handleFirestoreError(err, OperationType.WRITE, `professionals/${id}`);
   }
 }
+
+export async function fetchAllUsersAdmin(): Promise<UserProfile[]> {
+  const path = 'users';
+  try {
+    const snap = await getDocs(collection(db, path));
+    const list = snap.docs.map((d) => d.data() as UserProfile);
+    list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return list;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, path);
+  }
+}
+
+export async function fetchAllInvitationsAdmin(): Promise<FamilyInvitation[]> {
+  const path = 'invitations';
+  try {
+    const snap = await getDocs(collection(db, path));
+    const list = snap.docs.map((d) => ({
+      ...(d.data() as Omit<FamilyInvitation, 'id'>),
+      id: d.id,
+    }));
+    list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return list;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, path);
+  }
+}
+
+export interface CaseBackupDocument extends CaseDocument {
+  dataUrl: string | null;
+}
+
+export interface CaseBackupBundle {
+  bereavementCase: BereavementCase;
+  members: CaseMember[];
+  notes: CaseNote[];
+  reminders: CaseReminderLog[];
+  documents: CaseBackupDocument[];
+}
+
+export async function fetchCaseBackupBundleAdmin(
+  bereavementCase: BereavementCase,
+  includeDocumentPayloads = true
+): Promise<CaseBackupBundle> {
+  const caseId = bereavementCase.id;
+  try {
+    const [membersSnap, notesSnap, remindersSnap, docsSnap] = await Promise.all([
+      getDocs(collection(db, 'cases', caseId, 'members')),
+      getDocs(collection(db, 'cases', caseId, 'notes')),
+      getDocs(collection(db, 'cases', caseId, 'reminders')),
+      getDocs(collection(db, 'cases', caseId, 'documents')),
+    ]);
+
+    const members = membersSnap.docs.map((d) => d.data() as CaseMember);
+    const notes = notesSnap.docs.map((d) => ({
+      ...(d.data() as Omit<CaseNote, 'id'>),
+      id: d.id,
+    }));
+    const reminders = remindersSnap.docs.map((d) => ({
+      ...(d.data() as Omit<CaseReminderLog, 'id'>),
+      id: d.id,
+    }));
+
+    const documents: CaseBackupDocument[] = await Promise.all(
+      docsSnap.docs.map(async (d) => {
+        const meta = {
+          ...(d.data() as Omit<CaseDocument, 'id'>),
+          id: d.id,
+        };
+        if (!includeDocumentPayloads) {
+          return { ...meta, dataUrl: null };
+        }
+        try {
+          const fileSnap = await getDoc(doc(db, 'cases', caseId, 'documents', d.id, 'files', 'payload'));
+          const dataUrl = fileSnap.exists()
+            ? ((fileSnap.data() as { dataUrl?: string }).dataUrl ?? null)
+            : null;
+          return { ...meta, dataUrl };
+        } catch {
+          return { ...meta, dataUrl: null };
+        }
+      })
+    );
+
+    return {
+      bereavementCase,
+      members,
+      notes,
+      reminders,
+      documents,
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, `cases/${caseId}`);
+  }
+}
+

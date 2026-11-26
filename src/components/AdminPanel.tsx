@@ -1,22 +1,47 @@
-import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Bell, BookOpen, Check, FileText, KeyRound, Plus, Shield, Users } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ArrowLeft,
+  Bell,
+  BookOpen,
+  Check,
+  Copy,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  KeyRound,
+  Plus,
+  Search,
+  Shield,
+  Users,
+} from 'lucide-react';
 import { COMUNIDADES_AUTONOMAS } from '../data/proceduresCatalog';
 import {
   fetchAllCasesAdmin,
+  fetchAllInvitationsAdmin,
+  fetchAllUsersAdmin,
+  fetchCaseBackupBundleAdmin,
   saveLegalAlert,
   savePartnerCode,
   saveProcedureCatalogItem,
   saveProfessionalEntry,
   subscribePartnerCodesAdmin,
+  type CaseBackupBundle,
 } from '../services/firestoreService';
 import type {
   BereavementCase,
+  FamilyInvitation,
   LegalAlert,
   PartnerCode,
   ProcedureCatalogItem,
   ProfessionalEntry,
   RegionalOverride,
+  UserProfile,
 } from '../types/domain';
+import {
+  buildAdminContactRows,
+  buildContactsCsv,
+  triggerFileDownload,
+} from '../utils/adminExport';
 import { formatDateES } from '../utils/caseEngine';
 
 interface AdminPanelProps {
@@ -27,7 +52,8 @@ interface AdminPanelProps {
   onOpenCase: (bereavementCase: BereavementCase) => void;
 }
 
-type AdminTab = 'casos' | 'tramites' | 'codigos' | 'cambios' | 'directorio';
+type AdminTab = 'casos' | 'contactos' | 'tramites' | 'codigos' | 'cambios' | 'directorio';
+type ContactFilter = 'all' | 'paid' | 'unpaid' | 'invited';
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   catalog,
@@ -38,8 +64,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 }) => {
   const [tab, setTab] = useState<AdminTab>('casos');
   const [allCases, setAllCases] = useState<BereavementCase[]>([]);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [allInvitations, setAllInvitations] = useState<FamilyInvitation[]>([]);
   const [partnerCodes, setPartnerCodes] = useState<PartnerCode[]>([]);
+  const [adminDataLoading, setAdminDataLoading] = useState(true);
+  const [adminDataError, setAdminDataError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+
+  // Contacts & backup controls
+  const [contactSearch, setContactSearch] = useState('');
+  const [contactFilter, setContactFilter] = useState<ContactFilter>('all');
+  const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+  const [backupProgress, setBackupProgress] = useState<string | null>(null);
+  const [exportingCaseId, setExportingCaseId] = useState<string | null>(null);
 
   // Procedure editor state
   const [editingProc, setEditingProc] = useState<ProcedureCatalogItem | null>(
@@ -73,9 +110,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [proWebsite, setProWebsite] = useState('');
 
   useEffect(() => {
-    void fetchAllCasesAdmin().then(setAllCases).catch(() => {});
+    let active = true;
+    setAdminDataLoading(true);
+    setAdminDataError(null);
+    Promise.all([fetchAllCasesAdmin(), fetchAllUsersAdmin(), fetchAllInvitationsAdmin()])
+      .then(([casesList, usersList, invitationsList]) => {
+        if (!active) return;
+        setAllCases(casesList);
+        setAllUsers(usersList);
+        setAllInvitations(invitationsList);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setAdminDataError(
+          err instanceof Error
+            ? 'No se pudieron cargar todos los registros administrativos de Firestore.'
+            : 'Error cargando los datos administrativos.'
+        );
+      })
+      .finally(() => {
+        if (active) setAdminDataLoading(false);
+      });
     const unsubCodes = subscribePartnerCodesAdmin(setPartnerCodes);
-    return () => unsubCodes();
+    return () => {
+      active = false;
+      unsubCodes();
+    };
   }, []);
 
   useEffect(() => {
@@ -86,7 +146,139 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const notify = (msg: string) => {
     setStatusMsg(msg);
-    setTimeout(() => setStatusMsg(null), 3500);
+    setTimeout(() => setStatusMsg(null), 4000);
+  };
+
+  const contactRows = useMemo(
+    () => buildAdminContactRows(allUsers, allCases, allInvitations),
+    [allUsers, allCases, allInvitations]
+  );
+
+  const filteredContacts = useMemo(() => {
+    const q = contactSearch.trim().toLowerCase();
+    return contactRows.filter((row) => {
+      if (contactFilter === 'paid') {
+        if (row.paymentStatus !== 'paid_stripe' && row.paymentStatus !== 'paid_code') return false;
+      } else if (contactFilter === 'unpaid') {
+        if (row.paymentStatus !== 'pending') return false;
+      } else if (contactFilter === 'invited') {
+        if (row.paymentStatus !== 'family_invited') return false;
+      }
+      if (!q) return true;
+      return (
+        row.email.toLowerCase().includes(q) ||
+        row.displayName.toLowerCase().includes(q) ||
+        row.deceasedNames.some((n) => n.toLowerCase().includes(q)) ||
+        row.ccaas.some((ca) => ca.toLowerCase().includes(q)) ||
+        row.paymentLabel.toLowerCase().includes(q)
+      );
+    });
+  }, [contactRows, contactFilter, contactSearch]);
+
+  const contactStats = useMemo(() => {
+    const payingContacts = contactRows.filter(
+      (r) => r.paymentStatus === 'paid_stripe' || r.paymentStatus === 'paid_code'
+    ).length;
+    const paidCases = allCases.filter((c) => c.unlocked).length;
+    const invitedPendingOrAccepted = allInvitations.filter((i) => i.status !== 'revoked').length;
+    return {
+      totalContacts: contactRows.length,
+      payingContacts,
+      totalCases: allCases.length,
+      paidCases,
+      invitedCount: invitedPendingOrAccepted,
+    };
+  }, [contactRows, allCases, allInvitations]);
+
+  const handleExportContactsCsv = () => {
+    const targetRows = filteredContacts.length > 0 ? filteredContacts : contactRows;
+    if (targetRows.length === 0) {
+      notify('No hay contactos para exportar todavía.');
+      return;
+    }
+    const csv = buildContactsCsv(targetRows);
+    const stamp = new Date().toISOString().slice(0, 10);
+    triggerFileDownload(
+      `despues-del-adios-contactos-${stamp}.csv`,
+      csv,
+      'text/csv;charset=utf-8;'
+    );
+    notify(`Listado exportado (${targetRows.length} contactos en formato CSV para Excel).`);
+  };
+
+  const handleExportSingleCaseBackup = async (bereavementCase: BereavementCase) => {
+    setExportingCaseId(bereavementCase.id);
+    try {
+      const bundle = await fetchCaseBackupBundleAdmin(bereavementCase, true);
+      const safeName = bereavementCase.deceasedName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/gi, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 40);
+      const stamp = new Date().toISOString().slice(0, 10);
+      triggerFileDownload(
+        `copia-caso-${safeName || bereavementCase.id}-${stamp}.json`,
+        JSON.stringify(
+          {
+            exportedAt: new Date().toISOString(),
+            ...bundle,
+          },
+          null,
+          2
+        ),
+        'application/json;charset=utf-8;'
+      );
+      notify(
+        `Copia de seguridad descargada (${bundle.documents.length} documentos y ${bundle.notes.length} notas).`
+      );
+    } catch {
+      notify('No se pudo generar la copia de seguridad de este caso.');
+    } finally {
+      setExportingCaseId(null);
+    }
+  };
+
+  const handleExportFullBackupJson = async () => {
+    if (backupProgress) return;
+    setBackupProgress(`0/${allCases.length}`);
+    try {
+      const caseBundles: CaseBackupBundle[] = [];
+      for (let i = 0; i < allCases.length; i += 1) {
+        setBackupProgress(`${i + 1}/${allCases.length}`);
+        const bundle = await fetchCaseBackupBundleAdmin(allCases[i], true);
+        caseBundles.push(bundle);
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      const fullPayload = {
+        exportedAt: new Date().toISOString(),
+        summary: {
+          usersCount: allUsers.length,
+          casesCount: caseBundles.length,
+          invitationsCount: allInvitations.length,
+          documentsCount: caseBundles.reduce((acc, b) => acc + b.documents.length, 0),
+          notesCount: caseBundles.reduce((acc, b) => acc + b.notes.length, 0),
+        },
+        users: allUsers,
+        invitations: allInvitations,
+        cases: caseBundles,
+        partnerCodes,
+        legalAlerts,
+        professionals,
+        proceduresCatalog: catalog,
+      };
+      triggerFileDownload(
+        `despues-del-adios-copia-completa-${stamp}.json`,
+        JSON.stringify(fullPayload, null, 2),
+        'application/json;charset=utf-8;'
+      );
+      notify(
+        `Copia completa descargada (${caseBundles.length} casos y ${fullPayload.summary.documentsCount} documentos).`
+      );
+    } catch {
+      notify('No se pudo completar la copia de seguridad en JSON.');
+    } finally {
+      setBackupProgress(null);
+    }
   };
 
   const handleSaveProc = async (e: React.FormEvent) => {
@@ -211,7 +403,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center gap-6 overflow-x-auto border-t border-[#EFECE5]">
           {(
             [
-              { id: 'casos', label: 'Casos', icon: Users },
+              { id: 'casos', label: 'Casos', icon: FileText },
+              { id: 'contactos', label: 'Contactos y copias', icon: Users },
               { id: 'tramites', label: 'Trámites y plazos', icon: FileText },
               { id: 'codigos', label: 'Códigos', icon: KeyRound },
               { id: 'cambios', label: 'Cambios legales', icon: Bell },
@@ -225,7 +418,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className={`py-3 text-xs sm:text-sm font-medium border-b-2 inline-flex items-center gap-2 whitespace-nowrap shrink-0 ${
+                className={`py-3 min-h-[44px] text-xs sm:text-sm font-medium border-b-2 inline-flex items-center gap-2 whitespace-nowrap shrink-0 ${
                   active
                     ? 'border-[#8F754B] text-[#141518]'
                     : 'border-transparent text-[#666A73] hover:text-[#141518]'
@@ -242,18 +435,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
         {statusMsg && (
           <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 inline-flex items-center gap-2">
-            <Check className="w-4 h-4" />
+            <Check className="w-4 h-4 shrink-0" />
             <span>{statusMsg}</span>
+          </div>
+        )}
+
+        {adminDataError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+            {adminDataError}
           </div>
         )}
 
         {/* TAB 1: CASOS */}
         {tab === 'casos' && (
           <div className="rounded-2xl bg-white border border-[#E7E2D8] overflow-hidden">
-            <div className="p-5 border-b border-[#EFECE5] flex items-center justify-between">
+            <div className="p-5 border-b border-[#EFECE5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h2 className="font-display text-2xl font-semibold">
                 Casos registrados ({allCases.length})
               </h2>
+              <button
+                type="button"
+                onClick={() => void handleExportFullBackupJson()}
+                disabled={Boolean(backupProgress) || allCases.length === 0}
+                className="min-h-[44px] px-4 rounded-xl border border-[#D8D0C2] bg-[#FAF8F5] text-xs sm:text-sm font-medium text-[#141518] hover:bg-[#F3EFE6] inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0 disabled:opacity-50"
+              >
+                <Download className="w-4 h-4 text-[#8F754B]" />
+                <span>
+                  {backupProgress
+                    ? `Preparando copia (${backupProgress})...`
+                    : 'Copia completa (JSON)'}
+                </span>
+              </button>
             </div>
             <div className="divide-y divide-[#EFECE5]">
               {allCases.map((c) => (
@@ -261,28 +473,318 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   key={c.id}
                   className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-base font-semibold text-[#141518]">{c.deceasedName}</p>
-                    <p className="text-xs text-[#666A73] font-mono-num mt-0.5">
-                      Titular: {c.ownerEmail} · {c.ccaa} · Fallecimiento: {formatDateES(c.deathDate)} ·{' '}
-                      {c.unlockMethod === 'stripe'
-                        ? 'Pagado (Stripe)'
-                        : c.unlockMethod === 'partner_code'
-                        ? `Código: ${c.unlockCodeUsed}`
-                        : 'Pendiente de pago'}
+                    <p className="text-xs text-[#666A73] font-mono-num tabular-nums mt-0.5">
+                      Titular: {c.ownerEmail} · {c.ccaa} · Fallecimiento: {formatDateES(c.deathDate)}{' '}
+                      ·{' '}
+                      <span
+                        className={
+                          c.unlocked ? 'text-emerald-800 font-medium' : 'text-[#8F754B] font-medium'
+                        }
+                      >
+                        {c.unlockMethod === 'stripe'
+                          ? 'Pagado (Stripe)'
+                          : c.unlockMethod === 'partner_code'
+                          ? `Código: ${c.unlockCodeUsed}`
+                          : 'Pendiente de pago'}
+                      </span>
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onOpenCase(c)}
-                    className="min-h-[40px] px-4 rounded-xl border border-[#D8D0C2] text-xs font-medium hover:bg-[#FAF8F5] shrink-0"
-                  >
-                    Abrir caso
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => void handleExportSingleCaseBackup(c)}
+                      disabled={exportingCaseId === c.id}
+                      className="min-h-[44px] px-3.5 rounded-xl border border-[#D8D0C2] text-xs font-medium text-[#45484F] hover:bg-[#FAF8F5] inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-50"
+                    >
+                      <Download className="w-3.5 h-3.5 text-[#8F754B]" />
+                      <span>{exportingCaseId === c.id ? 'Exportando...' : 'Copia JSON'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenCase(c)}
+                      className="min-h-[44px] px-4 rounded-xl border border-[#D8D0C2] text-xs font-semibold text-[#141518] hover:bg-[#FAF8F5] whitespace-nowrap shrink-0"
+                    >
+                      Abrir caso
+                    </button>
+                  </div>
                 </div>
               ))}
-              {allCases.length === 0 && (
+              {!adminDataLoading && allCases.length === 0 && (
                 <p className="p-6 text-sm text-[#666A73]">Todavía no hay casos creados.</p>
+              )}
+              {adminDataLoading && (
+                <p className="p-6 text-sm text-[#666A73]">Cargando casos registrados...</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: CONTACTOS Y COPIAS */}
+        {tab === 'contactos' && (
+          <div className="space-y-6">
+            <div className="rounded-2xl bg-white border border-[#E7E2D8] grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 divide-x divide-[#EFECE5]">
+              <div className="p-4 sm:p-5">
+                <p className="text-xs text-[#666A73]">Contactos totales</p>
+                <p className="mt-1 text-2xl font-semibold text-[#141518] font-mono-num tabular-nums">
+                  {contactStats.totalContacts}
+                </p>
+              </div>
+              <div className="p-4 sm:p-5">
+                <p className="text-xs text-[#666A73]">Clientes con pago activo</p>
+                <p className="mt-1 text-2xl font-semibold text-emerald-800 font-mono-num tabular-nums">
+                  {contactStats.payingContacts}
+                </p>
+              </div>
+              <div className="p-4 sm:p-5">
+                <p className="text-xs text-[#666A73]">Casos pagados / totales</p>
+                <p className="mt-1 text-2xl font-semibold text-[#141518] font-mono-num tabular-nums">
+                  {contactStats.paidCases} / {contactStats.totalCases}
+                </p>
+              </div>
+              <div className="p-4 sm:p-5">
+                <p className="text-xs text-[#666A73]">Invitaciones familiares</p>
+                <p className="mt-1 text-2xl font-semibold text-[#141518] font-mono-num tabular-nums">
+                  {contactStats.invitedCount}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white border border-[#E7E2D8] p-4 sm:p-5 space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="w-4 h-4 text-[#666A73] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="search"
+                    value={contactSearch}
+                    onChange={(e) => setContactSearch(e.target.value)}
+                    placeholder="Buscar por correo, nombre, fallecido o CCAA..."
+                    className="w-full min-h-[44px] rounded-xl border border-[#D8D0C2] bg-[#FAF8F5] pl-10 pr-3.5 text-sm text-[#141518] focus:outline-none focus:border-[#8F754B]"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleExportContactsCsv}
+                    disabled={adminDataLoading || contactRows.length === 0}
+                    className="min-h-[44px] px-4 rounded-xl bg-[#141518] text-[#F6F4EF] text-xs sm:text-sm font-medium hover:bg-[#25272D] inline-flex items-center gap-2 whitespace-nowrap shrink-0 disabled:opacity-50"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-[#D6C3A5]" />
+                    <span>Exportar CSV (Excel)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExportFullBackupJson()}
+                    disabled={Boolean(backupProgress) || adminDataLoading}
+                    className="min-h-[44px] px-4 rounded-xl border border-[#D8D0C2] bg-white text-[#141518] text-xs sm:text-sm font-medium hover:bg-[#FAF8F5] inline-flex items-center gap-2 whitespace-nowrap shrink-0 disabled:opacity-50"
+                  >
+                    <Download className="w-4 h-4 text-[#8F754B]" />
+                    <span>
+                      {backupProgress
+                        ? `Copiando (${backupProgress})...`
+                        : 'Copia completa (JSON)'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1 p-1 bg-[#FAF8F5] border border-[#E7E2D8] rounded-xl w-fit">
+                {(
+                  [
+                    { id: 'all', label: 'Todos' },
+                    { id: 'paid', label: 'Han pagado' },
+                    { id: 'unpaid', label: 'Sin pago' },
+                    { id: 'invited', label: 'Familiares invitados' },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setContactFilter(item.id)}
+                    className={`min-h-[40px] px-3.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                      contactFilter === item.id
+                        ? 'bg-white text-[#141518] shadow-sm'
+                        : 'text-[#666A73] hover:text-[#141518]'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white border border-[#E7E2D8] overflow-hidden">
+              {adminDataLoading ? (
+                <div className="p-6 space-y-3">
+                  <div className="h-10 rounded-lg bg-[#FAF8F5] animate-pulse" />
+                  <div className="h-10 rounded-lg bg-[#FAF8F5] animate-pulse" />
+                  <div className="h-10 rounded-lg bg-[#FAF8F5] animate-pulse" />
+                </div>
+              ) : filteredContacts.length === 0 ? (
+                <div className="p-8 text-center space-y-3">
+                  <p className="text-sm text-[#5B5E65]">
+                    {contactRows.length === 0
+                      ? 'Todavía no hay usuarios ni contactos registrados en la base de datos.'
+                      : 'No hay contactos que coincidan con el filtro o la búsqueda actual.'}
+                  </p>
+                  {contactRows.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setContactSearch('');
+                        setContactFilter('all');
+                      }}
+                      className="min-h-[44px] px-4 rounded-xl border border-[#D8D0C2] text-xs font-medium text-[#141518] hover:bg-[#FAF8F5]"
+                    >
+                      Mostrar todos los contactos
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {/* Desktop Table */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-[#EFECE5] text-xs font-medium text-[#666A73]">
+                          <th className="py-3.5 px-4">Contacto</th>
+                          <th className="py-3.5 px-4">Tipo y pago</th>
+                          <th className="py-3.5 px-4">Casos / CCAA</th>
+                          <th className="py-3.5 px-4 text-right">Alta</th>
+                          <th className="py-3.5 px-4 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#EFECE5] text-sm">
+                        {filteredContacts.map((row) => (
+                          <tr key={row.key} className="hover:bg-[#FAF8F5]/70 transition-colors">
+                            <td className="py-3.5 px-4 align-top">
+                              <p className="font-medium text-[#141518]">{row.displayName}</p>
+                              <p className="text-xs text-[#5B5E65] font-mono-num">{row.email}</p>
+                            </td>
+                            <td className="py-3.5 px-4 align-top">
+                              <p className="text-xs text-[#5B5E65]">{row.roleLabel}</p>
+                              <p
+                                className={`text-xs font-medium mt-0.5 ${
+                                  row.paymentStatus === 'paid_stripe' ||
+                                  row.paymentStatus === 'paid_code'
+                                    ? 'text-emerald-800'
+                                    : row.paymentStatus === 'pending'
+                                    ? 'text-[#8F754B]'
+                                    : 'text-[#45484F]'
+                                }`}
+                              >
+                                {row.paymentLabel}
+                              </p>
+                            </td>
+                            <td className="py-3.5 px-4 align-top text-xs text-[#45484F]">
+                              {row.deceasedNames.length > 0 ? (
+                                <>
+                                  <p className="font-medium text-[#141518]">
+                                    {row.deceasedNames.join(' · ')}
+                                  </p>
+                                  {row.ccaas.length > 0 && (
+                                    <p className="text-[#666A73] mt-0.5">{row.ccaas.join(', ')}</p>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="text-[#8A8E96]">Sin caso creado</span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 align-top text-right text-xs text-[#666A73] font-mono-num tabular-nums whitespace-nowrap">
+                              {row.createdAt ? formatDateES(row.createdAt.slice(0, 10)) : '—'}
+                            </td>
+                            <td className="py-3.5 px-4 align-top text-right">
+                              <div className="inline-flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void navigator.clipboard.writeText(row.email);
+                                    setCopiedEmail(row.key);
+                                    setTimeout(() => setCopiedEmail(null), 1800);
+                                  }}
+                                  className="min-h-[40px] px-3 rounded-lg border border-[#D8D0C2] text-xs font-medium text-[#45484F] hover:bg-white inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                  <span>{copiedEmail === row.key ? 'Copiado' : 'Copiar'}</span>
+                                </button>
+                                {row.primaryCase && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenCase(row.primaryCase!)}
+                                    className="min-h-[40px] px-3 rounded-lg border border-[#D8D0C2] text-xs font-semibold text-[#141518] hover:bg-white whitespace-nowrap shrink-0"
+                                  >
+                                    Abrir caso
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile List */}
+                  <div className="md:hidden divide-y divide-[#EFECE5]">
+                    {filteredContacts.map((row) => (
+                      <div key={row.key} className="p-4 space-y-2.5">
+                        <div>
+                          <p className="text-sm font-semibold text-[#141518]">{row.displayName}</p>
+                          <p className="text-xs text-[#5B5E65] font-mono-num break-all">
+                            {row.email}
+                          </p>
+                        </div>
+                        <p className="text-xs text-[#666A73] font-mono-num tabular-nums">
+                          {row.roleLabel} ·{' '}
+                          <span
+                            className={
+                              row.paymentStatus === 'paid_stripe' ||
+                              row.paymentStatus === 'paid_code'
+                                ? 'text-emerald-800 font-medium'
+                                : row.paymentStatus === 'pending'
+                                ? 'text-[#8F754B] font-medium'
+                                : 'text-[#45484F]'
+                            }
+                          >
+                            {row.paymentLabel}
+                          </span>
+                          {row.createdAt ? ` · Alta ${formatDateES(row.createdAt.slice(0, 10))}` : ''}
+                        </p>
+                        {row.deceasedNames.length > 0 && (
+                          <p className="text-xs text-[#45484F]">
+                            {row.deceasedNames.join(' · ')}
+                            {row.ccaas.length > 0 ? ` (${row.ccaas.join(', ')})` : ''}
+                          </p>
+                        )}
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(row.email);
+                              setCopiedEmail(row.key);
+                              setTimeout(() => setCopiedEmail(null), 1800);
+                            }}
+                            className="min-h-[44px] px-3.5 rounded-xl border border-[#D8D0C2] text-xs font-medium text-[#45484F] inline-flex items-center gap-1.5"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>{copiedEmail === row.key ? 'Correo copiado' : 'Copiar correo'}</span>
+                          </button>
+                          {row.primaryCase && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenCase(row.primaryCase!)}
+                              className="min-h-[44px] px-3.5 rounded-xl border border-[#D8D0C2] text-xs font-semibold text-[#141518]"
+                            >
+                              Abrir caso
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           </div>
